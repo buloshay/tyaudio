@@ -1,0 +1,48 @@
+# Git忽略文件
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# Xcode
+build/
+DerivedData/
+*.xcuserstate
+*.xcworkspaccedata
+xcuserdata/
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# CocoaPods
+Pods/
+
+# Carthage
+Carthage/Build/
+Carthage/Checkouts/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+Package.resolved
+
+# 项目特定忽略
+AGENTS.md
+sunlogin_sdk_ios_SunloginRemoteSDK_v3.0.1/
+TY-i60 通讯协议(1).docx
+音响设备控制IOS版APPv1.0功能需求列表(1).xlsx
+
+# IDE
+.idea/
+*.pbxuser
+!default.pbxuser
+*.mode1v3
+!default.mode1v3
+*.mode2v3
+!default.mode2v3
+*.perspectivev3
+!default.perspectivev3
