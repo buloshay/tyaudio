@@ -86,6 +86,53 @@ class ScreenMirrorViewController: UIViewController {
         return label
     }()
     
+    // MARK: - Control Bar Components
+    
+    private lazy var controlBar: UIView = {
+        let view = UIView()
+        view.backgroundColor = .cardBackground
+        view.isHidden = true
+        return view
+    }()
+    
+    private lazy var controlStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.distribution = .fillEqually
+        stack.spacing = 0
+        return stack
+    }()
+    
+    private lazy var deviceBackButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "arrow.backward.circle.fill"), for: .normal)
+        button.setTitle(" 后退", for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        button.tintColor = .textPrimary
+        button.addTarget(self, action: #selector(deviceBackTapped), for: .touchUpInside)
+        return button
+    }()
+    
+    private lazy var deviceHomeButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "house.circle.fill"), for: .normal)
+        button.setTitle(" 主页", for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        button.tintColor = .textPrimary
+        button.addTarget(self, action: #selector(deviceHomeTapped), for: .touchUpInside)
+        return button
+    }()
+    
+    private lazy var disconnectButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "xmark.circle.fill"), for: .normal)
+        button.setTitle(" 关闭", for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 14, weight: .medium)
+        button.tintColor = .systemRed
+        button.addTarget(self, action: #selector(disconnectTapped), for: .touchUpInside)
+        return button
+    }()
+    
     // MARK: - Properties
     
     private let device: Device
@@ -176,6 +223,26 @@ class ScreenMirrorViewController: UIViewController {
             connectButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
             connectButton.heightAnchor.constraint(equalToConstant: 50)
         ])
+        
+        // Control Bar
+        controlStackView.addArrangedSubview(deviceBackButton)
+        controlStackView.addArrangedSubview(deviceHomeButton)
+        controlStackView.addArrangedSubview(disconnectButton)
+        
+        view.addSubviewWithAutoLayout(controlBar)
+        controlBar.addSubviewWithAutoLayout(controlStackView)
+        
+        NSLayoutConstraint.activate([
+            controlBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            controlBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            controlBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            controlBar.heightAnchor.constraint(equalToConstant: 80),
+            
+            controlStackView.topAnchor.constraint(equalTo: controlBar.topAnchor, constant: 12),
+            controlStackView.leadingAnchor.constraint(equalTo: controlBar.leadingAnchor, constant: 20),
+            controlStackView.trailingAnchor.constraint(equalTo: controlBar.trailingAnchor, constant: -20),
+            controlStackView.heightAnchor.constraint(equalToConstant: 44)
+        ])
     }
     
     // MARK: - Actions
@@ -187,6 +254,22 @@ class ScreenMirrorViewController: UIViewController {
     
     @objc private func connectTapped() {
         startConnection()
+    }
+    
+    @objc private func deviceBackTapped() {
+        TCPSocketManager.shared.send(command: CommandBuilder.sendBackKey())
+    }
+    
+    @objc private func deviceHomeTapped() {
+        TCPSocketManager.shared.send(command: CommandBuilder.sendHomeKey())
+    }
+    
+    @objc private func disconnectTapped() {
+        ScreenMirrorService.shared.disconnect()
+        controlBar.isHidden = true
+        connectButton.isHidden = false
+        statusLabel.text = "已断开连接"
+        statusLabel.textColor = .textSecondary
     }
     
     private func startConnection() {
@@ -230,6 +313,8 @@ extension ScreenMirrorViewController: ScreenMirrorServiceDelegate {
         case .connected:
             statusLabel.text = "已连接"
             statusLabel.textColor = .accent
+            controlBar.isHidden = false
+            connectButton.isHidden = true
         case .failed(let error):
             showError("连接失败: \(error)")
         case .disconnected:

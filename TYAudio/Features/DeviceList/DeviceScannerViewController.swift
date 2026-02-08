@@ -6,6 +6,8 @@
 //
 
 import UIKit
+import AVFoundation
+import AudioToolbox
 
 protocol DeviceScannerViewControllerDelegate: AnyObject {
     func deviceScannerViewController(_ controller: DeviceScannerViewController, didAddDevice device: Device)
@@ -33,7 +35,7 @@ class DeviceScannerViewController: UIViewController {
     }()
     
     private lazy var segmentControl: UISegmentedControl = {
-        let control = UISegmentedControl(items: ["自动扫描", "手动添加"])
+        let control = UISegmentedControl(items: ["自动扫描", "手动添加", "扫码添加"])
         control.selectedSegmentIndex = 0
         control.backgroundColor = .cardBackground
         control.selectedSegmentTintColor = .accent
@@ -149,6 +151,35 @@ class DeviceScannerViewController: UIViewController {
     private let scanner = DeviceScanner()
     private var foundDevices: [Device] = []
     
+    // QR Scanner properties
+    private var captureSession: AVCaptureSession?
+    private var previewLayer: AVCaptureVideoPreviewLayer?
+    
+    // QR Scanner UI
+    private lazy var qrContainerView: UIView = {
+        let view = UIView()
+        view.isHidden = true
+        view.backgroundColor = .black
+        return view
+    }()
+    
+    private lazy var qrFrameView: UIView = {
+        let view = UIView()
+        view.layer.borderColor = UIColor.accent.cgColor
+        view.layer.borderWidth = 2
+        view.setCornerRadius(12)
+        return view
+    }()
+    
+    private lazy var qrHintLabel: UILabel = {
+        let label = UILabel()
+        label.text = "将二维码放入框内扫描"
+        label.font = .systemFont(ofSize: 14)
+        label.textColor = .white
+        label.textAlignment = .center
+        return label
+    }()
+    
     // MARK: - Lifecycle
     
     override func viewDidLoad() {
@@ -256,6 +287,26 @@ class DeviceScannerViewController: UIViewController {
             addManualButton.trailingAnchor.constraint(equalTo: ipTextField.trailingAnchor),
             addManualButton.heightAnchor.constraint(equalToConstant: 50)
         ])
+        
+        // QR Container
+        view.addSubviewWithAutoLayout(qrContainerView)
+        qrContainerView.addSubviewWithAutoLayout(qrFrameView)
+        qrContainerView.addSubviewWithAutoLayout(qrHintLabel)
+        
+        NSLayoutConstraint.activate([
+            qrContainerView.topAnchor.constraint(equalTo: hintLabel.bottomAnchor, constant: 30),
+            qrContainerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            qrContainerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            qrContainerView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            
+            qrFrameView.centerXAnchor.constraint(equalTo: qrContainerView.centerXAnchor),
+            qrFrameView.centerYAnchor.constraint(equalTo: qrContainerView.centerYAnchor, constant: -40),
+            qrFrameView.widthAnchor.constraint(equalToConstant: 250),
+            qrFrameView.heightAnchor.constraint(equalToConstant: 250),
+            
+            qrHintLabel.topAnchor.constraint(equalTo: qrFrameView.bottomAnchor, constant: 24),
+            qrHintLabel.centerXAnchor.constraint(equalTo: qrContainerView.centerXAnchor)
+        ])
     }
     
     private func startScanning() {
@@ -290,12 +341,34 @@ class DeviceScannerViewController: UIViewController {
     }
     
     @objc private func segmentChanged() {
-        let isAutoScan = segmentControl.selectedSegmentIndex == 0
-        scanContainerView.isHidden = !isAutoScan
-        manualContainerView.isHidden = isAutoScan
+        let selectedIndex = segmentControl.selectedSegmentIndex
         
-        if isAutoScan && foundDevices.isEmpty {
-            startScanning()
+        // Hide all containers
+        scanContainerView.isHidden = true
+        manualContainerView.isHidden = true
+        qrContainerView.isHidden = true
+        
+        // Stop QR session if not on QR tab
+        if selectedIndex != 2 {
+            stopQRScanning()
+        }
+        
+        switch selectedIndex {
+        case 0: // 自动扫描
+            scanContainerView.isHidden = false
+            hintLabel.text = "请确认手机与设备在同一局域网内"
+            if foundDevices.isEmpty {
+                startScanning()
+            }
+        case 1: // 手动添加
+            manualContainerView.isHidden = false
+            hintLabel.text = "请输入设备IP地址"
+        case 2: // 扫码添加
+            qrContainerView.isHidden = false
+            hintLabel.text = "扫描设备二维码添加"
+            startQRScanning()
+        default:
+            break
         }
     }
     
@@ -323,6 +396,128 @@ class DeviceScannerViewController: UIViewController {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "确定", style: .default))
         present(alert, animated: true)
+    }
+    
+    // MARK: - QR Scanner
+    
+    private func startQRScanning() {
+        guard captureSession == nil else {
+            captureSession?.startRunning()
+            return
+        }
+        
+        // Check camera permission
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            setupCaptureSession()
+        case .notDetermined:
+            AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
+                DispatchQueue.main.async {
+                    if granted {
+                        self?.setupCaptureSession()
+                    } else {
+                        self?.showCameraPermissionAlert()
+                    }
+                }
+            }
+        default:
+            showCameraPermissionAlert()
+        }
+    }
+    
+    private func stopQRScanning() {
+        captureSession?.stopRunning()
+    }
+    
+    private func setupCaptureSession() {
+        let session = AVCaptureSession()
+        
+        guard let device = AVCaptureDevice.default(for: .video),
+              let input = try? AVCaptureDeviceInput(device: device) else {
+            showAlert(title: "错误", message: "无法访问摄像头")
+            return
+        }
+        
+        if session.canAddInput(input) {
+            session.addInput(input)
+        }
+        
+        let output = AVCaptureMetadataOutput()
+        if session.canAddOutput(output) {
+            session.addOutput(output)
+            output.setMetadataObjectsDelegate(self, queue: DispatchQueue.main)
+            output.metadataObjectTypes = [.qr]
+        }
+        
+        // Setup preview layer
+        let preview = AVCaptureVideoPreviewLayer(session: session)
+        preview.videoGravity = .resizeAspectFill
+        preview.frame = qrContainerView.bounds
+        qrContainerView.layer.insertSublayer(preview, at: 0)
+        previewLayer = preview
+        
+        captureSession = session
+        
+        DispatchQueue.global(qos: .userInitiated).async {
+            session.startRunning()
+        }
+    }
+    
+    private func showCameraPermissionAlert() {
+        let alert = UIAlertController(
+            title: "需要相机权限",
+            message: "请在设置中允许访问相机以扫描二维码",
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "去设置", style: .default) { _ in
+            if let url = URL(string: UIApplication.openSettingsURLString) {
+                UIApplication.shared.open(url)
+            }
+        })
+        present(alert, animated: true)
+    }
+    
+    private func handleQRCode(_ code: String) {
+        // Stop scanning
+        stopQRScanning()
+        
+        // Try to parse the QR code
+        var ipAddress: String?
+        var model: String?
+        
+        // Try JSON format first: {"ip":"192.168.x.x","model":"xxx"}
+        if let data = code.data(using: .utf8),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            ipAddress = json["ip"] as? String
+            model = json["model"] as? String
+        }
+        
+        // If not JSON, treat as plain IP address
+        if ipAddress == nil {
+            // Validate IP format
+            let components = code.components(separatedBy: ".")
+            if components.count == 4, components.allSatisfy({ Int($0) != nil && Int($0)! >= 0 && Int($0)! <= 255 }) {
+                ipAddress = code
+            }
+        }
+        
+        guard let ip = ipAddress else {
+            showAlert(title: "无效二维码", message: "未能识别设备信息，请确认二维码正确")
+            // Resume scanning after alert dismissed
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
+                self?.startQRScanning()
+            }
+            return
+        }
+        
+        // Create device and add
+        var device = Device(ipAddress: ip)
+        if let m = model {
+            device = Device(ipAddress: ip, port: 9012, model: m)
+        }
+        
+        addDevice(device)
     }
 }
 
@@ -385,6 +580,24 @@ extension DeviceScannerViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return 70
+    }
+}
+
+// MARK: - AVCaptureMetadataOutputObjectsDelegate
+
+extension DeviceScannerViewController: AVCaptureMetadataOutputObjectsDelegate {
+    
+    func metadataOutput(_ output: AVCaptureMetadataOutput, didOutput metadataObjects: [AVMetadataObject], from connection: AVCaptureConnection) {
+        guard let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+              metadataObject.type == .qr,
+              let stringValue = metadataObject.stringValue else {
+            return
+        }
+        
+        // Vibrate to indicate successful scan
+        AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
+        
+        handleQRCode(stringValue)
     }
 }
 

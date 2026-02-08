@@ -196,4 +196,25 @@ struct CommandBuilder {
     static func launchSettings() -> [String: Any] {
         return launchApp(package: "setting")
     }
+    
+    // MARK: - 远程控制
+    
+    /// 发送按键事件
+    /// - Parameter key: 按键类型 (home/back)
+    static func sendKey(_ key: String) -> [String: Any] {
+        return [
+            "command": "key",
+            "key": key
+        ]
+    }
+    
+    /// 发送主页键
+    static func sendHomeKey() -> [String: Any] {
+        return sendKey("home")
+    }
+    
+    /// 发送返回键
+    static func sendBackKey() -> [String: Any] {
+        return sendKey("back")
+    }
 }
