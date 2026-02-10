@@ -7,7 +7,7 @@
 
 import UIKit
 
-class CategoryViewController: UIViewController {
+class CategoryViewController: BaseViewController {
     
     // MARK: - UI Components
     

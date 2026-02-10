@@ -7,7 +7,7 @@
 
 import UIKit
 
-class DeviceControlViewController: UIViewController {
+class DeviceControlViewController: BaseViewController {
     
     // MARK: - UI Components
     
@@ -164,6 +164,11 @@ class DeviceControlViewController: UIViewController {
     
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+    
+    deinit {
+        print("[DeviceControlViewController] deinit - disconnecting TCP")
+        TCPSocketManager.shared.disconnect()
     }
     
     // MARK: - Lifecycle
@@ -362,6 +367,7 @@ class DeviceControlViewController: UIViewController {
     // MARK: - Connection
     
     private func connectToDevice() {
+        print("[User Action] DeviceControlViewController - connecting to device: \(device.displayName)")
         TCPSocketManager.shared.delegate = self
         TCPSocketManager.shared.connect(host: device.ipAddress, port: device.port)
     }
@@ -369,11 +375,13 @@ class DeviceControlViewController: UIViewController {
     // MARK: - Actions
     
     @objc private func backTapped() {
+        print("[User Action] DeviceControlViewController - backTapped")
         TCPSocketManager.shared.disconnect()
         navigationController?.popViewController(animated: true)
     }
     
     private func handleFeatureAction(_ action: FeatureAction) {
+        print("[User Action] DeviceControlViewController - handleFeatureAction: \(action)")
         switch action {
         case .storage(let type):
             let vc = FileBrowserViewController(path: type.path, title: type == .hardDrive ? "硬盘" : type == .usb ? "U盘" : "TF卡")
@@ -406,7 +414,7 @@ class DeviceControlViewController: UIViewController {
     }
     
     private func launchStreamingApp(_ type: StreamingType) {
-        TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
+        TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { error in
             guard error == nil else { return }
             // 等待session返回后启动镜像
         }

@@ -7,7 +7,7 @@
 
 import UIKit
 
-class DeviceListViewController: UIViewController {
+class DeviceListViewController: BaseViewController {
     
     // MARK: - UI Components
     
@@ -87,6 +87,7 @@ class DeviceListViewController: UIViewController {
     // MARK: - Properties
     
     private var devices: [Device] = []
+    private var connectingDevice: Device?
     
     // MARK: - Lifecycle
     
@@ -165,17 +166,28 @@ class DeviceListViewController: UIViewController {
     // MARK: - Actions
     
     @objc private func addDeviceTapped() {
+        print("[User Action] DeviceListViewController - addDeviceTapped")
         let scannerVC = DeviceScannerViewController()
         scannerVC.delegate = self
         let nav = UINavigationController(rootViewController: scannerVC)
         nav.modalPresentationStyle = .fullScreen
-        present(nav, animated: true)
+        present(nav, animated: true, completion: nil)
     }
     
     private func connectToDevice(_ device: Device) {
-        DeviceManager.shared.setCurrentDevice(device)
-        let controlVC = DeviceControlViewController(device: device)
-        navigationController?.pushViewController(controlVC, animated: true)
+        print("[User Action] DeviceListViewController - connecting to device: \(device.displayName)")
+        
+        connectingDevice = device
+        TCPSocketManager.shared.delegate = self
+        TCPSocketManager.shared.connect(host: device.ipAddress, port: device.port)
+        
+        // Show loading indicator
+        let alert = UIAlertController(title: "连接中...", message: "正在连接到 \(device.displayName)", preferredStyle: .alert)
+        present(alert, animated: true) {
+            // Dismiss automatically if needed or reference it to dismiss later
+            // For now rely on state change to dismiss/navigate
+            self.connectingDevice = device // Just ensuring set
+        }
     }
 }
 
@@ -205,8 +217,10 @@ extension DeviceListViewController: UITableViewDelegate {
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        print("[User Action] DeviceListViewController - didSelectRowAt: \(indexPath.row)")
         tableView.deselectRow(at: indexPath, animated: true)
-        connectToDevice(devices[indexPath.row])
+        let device = devices[indexPath.row]
+        connectToDevice(device)
     }
     
     func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
@@ -233,6 +247,47 @@ extension DeviceListViewController: DeviceScannerViewControllerDelegate {
         DeviceManager.shared.addDevice(device)
         loadDevices()
     }
+}
+
+// MARK: - TCPSocketManagerDelegate
+
+extension DeviceListViewController: TCPSocketManagerDelegate {
+    
+    func tcpSocketManager(_ manager: TCPSocketManager, didChangeState state: TCPConnectionState) {
+        // Dismiss loading alert if present
+        if let presented = presentedViewController as? UIAlertController, presented.title == "连接中..." {
+            presented.dismiss(animated: true) { [weak self] in
+                self?.handleConnectionState(state)
+            }
+        } else {
+            handleConnectionState(state)
+        }
+    }
+    
+    private func handleConnectionState(_ state: TCPConnectionState) {
+        switch state {
+        case .connected:
+            print("DeviceListViewController - Connected")
+            if let device = connectingDevice {
+                DeviceManager.shared.setCurrentDevice(device)
+                let controlVC = DeviceControlViewController(device: device)
+                navigationController?.pushViewController(controlVC, animated: true)
+                connectingDevice = nil
+            }
+        case .failed(let error):
+            print("DeviceListViewController - Connection failed: \(error)")
+            let alert = UIAlertController(title: "连接失败", message: error.localizedDescription, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "确定", style: .default))
+            present(alert, animated: true)
+            connectingDevice = nil
+        default:
+            break
+        }
+    }
+    
+    func tcpSocketManager(_ manager: TCPSocketManager, didReceiveData data: [String: Any], command: String) {}
+    
+    func tcpSocketManager(_ manager: TCPSocketManager, didReceiveError error: Error) {}
 }
 
 // MARK: - Device Cell

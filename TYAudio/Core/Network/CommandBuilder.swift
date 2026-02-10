@@ -169,6 +169,11 @@ struct CommandBuilder {
     static func getScreenMirrorSession() -> [String: Any] {
         return ["command": "screen_mirror_session"]
     }
+
+    /// 获取会话信息 (兼容旧代码)
+    static func getSession() -> [String: Any] {
+        return getScreenMirrorSession()
+    }
     
     // MARK: - 设备属性
     

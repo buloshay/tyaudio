@@ -1,0 +1,6 @@
+framework module SunloginControlSDK {
+  umbrella header "SunloginControlSDK.h"
+  export *
+
+  module * { export * }
+}

@@ -7,7 +7,7 @@
 
 import UIKit
 
-class PlayerViewController: UIViewController {
+class PlayerViewController: BaseViewController {
     
     // MARK: - UI Components
     
@@ -344,16 +344,18 @@ class PlayerViewController: UIViewController {
     // MARK: - Actions
     
     @objc private func closeTapped() {
-        dismiss(animated: true)
+        print("[User Action] PlayerViewController - closeTapped")
+        dismiss(animated: true, completion: nil)
     }
     
     @objc private func playlistTapped() {
+        print("[User Action] PlayerViewController - playlistTapped")
         let playlistVC = PlaylistViewController()
         playlistVC.modalPresentationStyle = .pageSheet
         if let sheet = playlistVC.sheetPresentationController {
             sheet.detents = [.medium(), .large()]
         }
-        present(playlistVC, animated: true)
+        present(playlistVC, animated: true, completion: nil)
     }
     
     @objc private func sliderValueChanged() {
@@ -363,13 +365,17 @@ class PlayerViewController: UIViewController {
     }
     
     @objc private func sliderTouchUp() {
+        print("[User Action] PlayerViewController - sliderTouchUp: \(progressSlider.value)")
+        stopProgressTimer() // Stop timer while seeking
         let position = Int(progressSlider.value * Float(playState.duration))
         TCPSocketManager.shared.send(command: CommandBuilder.seek(position: position))
         playState.progress = position
         isDraggingSlider = false
+        startProgressTimer() // Restart timer after seek
     }
     
     @objc private func playModeTapped() {
+        print("[User Action] PlayerViewController - playModeTapped")
         var newMode = playState.playMode.rawValue + 1
         if newMode > 3 { newMode = 0 }
         playState.playMode = PlayMode(rawValue: newMode) ?? .sequence
@@ -378,20 +384,24 @@ class PlayerViewController: UIViewController {
     }
     
     @objc private func previousTapped() {
+        print("[User Action] PlayerViewController - previousTapped")
         TCPSocketManager.shared.send(command: CommandBuilder.previous())
     }
     
     @objc private func playTapped() {
+        print("[User Action] PlayerViewController - playTapped")
         TCPSocketManager.shared.send(command: CommandBuilder.playPause())
         playState.status = playState.isPlaying ? 0 : 1
         updateUI()
     }
     
     @objc private func nextTapped() {
+        print("[User Action] PlayerViewController - nextTapped")
         TCPSocketManager.shared.send(command: CommandBuilder.next())
     }
     
     @objc private func favoriteTapped() {
+        print("[User Action] PlayerViewController - favoriteTapped")
         // TODO: Toggle favorite
     }
     

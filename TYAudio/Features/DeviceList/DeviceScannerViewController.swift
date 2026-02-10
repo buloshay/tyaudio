@@ -13,7 +13,7 @@ protocol DeviceScannerViewControllerDelegate: AnyObject {
     func deviceScannerViewController(_ controller: DeviceScannerViewController, didAddDevice device: Device)
 }
 
-class DeviceScannerViewController: UIViewController {
+class DeviceScannerViewController: BaseViewController {
     
     // MARK: - UI Components
     
@@ -514,7 +514,7 @@ class DeviceScannerViewController: UIViewController {
         // Create device and add
         var device = Device(ipAddress: ip)
         if let m = model {
-            device = Device(ipAddress: ip, port: 9012, model: m)
+            device = Device(ipAddress: ip, port: 8001, model: m)
         }
         
         addDevice(device)

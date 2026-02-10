@@ -72,7 +72,7 @@ class ScreenMirrorService: NSObject {
         let config = SCCDesktopConfig()
         
         // 连接远程桌面
-        SCCSDK.sdk().connectRemoteDestop(
+        SCCSDK().connectRemoteDestop(
             withAddress: address,
             session: session,
             soundSession: soundSession,
@@ -120,7 +120,7 @@ class ScreenMirrorService: NSObject {
     
     /// 切换操作模式
     func switchOperationMode(_ mode: SCCDesktopOperationMode) {
-        desktopController?.switchOperationMode(mode)
+        desktopController?.switch(mode)
     }
     
     /// 获取当前操作模式
@@ -145,7 +145,7 @@ extension ScreenMirrorService: SCCSDKConnectStateDelegate {
         state = .connected
     }
     
-    func sccsdkConnectFailed(withErrorCode errorCode: Int, errorMessage: String) {
+    func sccsdkConnectFailedWithErrorCode(_ errorCode: Int, errorMessage: String) {
         state = .failed(error: errorMessage)
     }
 }

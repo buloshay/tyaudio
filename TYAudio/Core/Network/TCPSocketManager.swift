@@ -38,14 +38,17 @@ class TCPSocketManager {
     
     private(set) var connectionState: TCPConnectionState = .disconnected {
         didSet {
-            DispatchQueue.main.async {
-                self.delegate?.tcpSocketManager(self, didChangeState: self.connectionState)
+            let newState = connectionState // 立即捕获，避免异步读取时状态已变
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                print("TCP Connection state changed: \(newState)")
+                self.delegate?.tcpSocketManager(self, didChangeState: newState)
             }
         }
     }
     
     private(set) var currentHost: String?
-    private(set) var currentPort: UInt16 = 9012 // 默认端口
+    private(set) var currentPort: UInt16 = 8001 // 默认端口
     
     // MARK: - Initialization
     
@@ -54,8 +57,11 @@ class TCPSocketManager {
     // MARK: - Connection Management
     
     /// 连接到设备
-    func connect(host: String, port: UInt16 = 9012) {
-        disconnect()
+    func connect(host: String, port: UInt16 = 8001) {
+        print("[TCP] [App] Connecting to host: \(host), port: \(port)...")
+        // 静默清理旧连接，不触发状态回调
+        connection?.cancel()
+        connection = nil
         
         currentHost = host
         currentPort = port
@@ -84,6 +90,7 @@ class TCPSocketManager {
     
     /// 断开连接
     func disconnect() {
+        print("[TCP] [App] Disconnecting from host...")
         connection?.cancel()
         connection = nil
         connectionState = .disconnected
@@ -109,7 +116,9 @@ class TCPSocketManager {
         }
         
         do {
+            print("[TCP] Sending command: \(command)")
             let jsonData = try JSONSerialization.data(withJSONObject: command, options: [])
+            print("[TCP] Sending Hex: \(jsonData.map { String(format: "%02hhx", $0) }.joined())")
             let messageData = packMessage(jsonData)
             
             connection?.send(content: messageData, completion: .contentProcessed { error in
@@ -129,10 +138,14 @@ class TCPSocketManager {
             return
         }
         
+        print("[TCP] Sending JSON string: \(jsonString)")
+        
         guard let jsonData = jsonString.data(using: .utf8) else {
             completion?(TCPError.invalidData)
             return
         }
+        
+        print("[TCP] Sending Hex: \(jsonData.map { String(format: "%02hhx", $0) }.joined())")
         
         let messageData = packMessage(jsonData)
         
@@ -165,6 +178,7 @@ class TCPSocketManager {
             guard let self = self else { return }
             
             if let error = error {
+                print("[TCP] Error receiving length: \(error)")
                 DispatchQueue.main.async {
                     self.delegate?.tcpSocketManager(self, didReceiveError: error)
                 }
@@ -172,6 +186,7 @@ class TCPSocketManager {
             }
             
             if isComplete {
+                print("[TCP] [Remote] Connection closed by remote host (EOF)")
                 self.connectionState = .disconnected
                 return
             }
@@ -180,10 +195,12 @@ class TCPSocketManager {
                   let lengthString = String(data: data, encoding: .utf8),
                   let length = Int(lengthString.trimmingCharacters(in: .whitespaces)),
                   length > 0 else {
+                print("[TCP] Invalid length header received, retrying...")
                 self.receiveLength()
                 return
             }
             
+            print("[TCP] Received data length: \(length)")
             self.receiveContent(length: length)
         }
     }
@@ -194,6 +211,7 @@ class TCPSocketManager {
             guard let self = self else { return }
             
             if let error = error {
+                print("Error receiving content: \(error)")
                 DispatchQueue.main.async {
                     self.delegate?.tcpSocketManager(self, didReceiveError: error)
                 }
@@ -201,6 +219,7 @@ class TCPSocketManager {
             }
             
             if let data = content {
+                print("[TCP] Received Hex: \(data.map { String(format: "%02hhx", $0) }.joined())")
                 self.parseReceivedData(data)
             }
             
@@ -216,6 +235,8 @@ class TCPSocketManager {
             if let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
                let command = json["command"] as? String {
                 
+                print("Received command: \(command), data: \(json)")
+                
                 // 播放状态需要回应pong
                 if command == "play_state" {
                     sendPong()
@@ -226,6 +247,7 @@ class TCPSocketManager {
                 }
             }
         } catch {
+            print("Error parsing received data: \(error)")
             DispatchQueue.main.async {
                 self.delegate?.tcpSocketManager(self, didReceiveError: error)
             }

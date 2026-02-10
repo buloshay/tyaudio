@@ -2,8 +2,13 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>NSCameraUsageDescription</key>
-	<string>需要访问相机以扫描设备二维码</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>需要访问本地网络以发现和连接音响设备</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_tyaudio._tcp</string>
+		<string>_http._tcp</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

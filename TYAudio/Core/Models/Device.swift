@@ -16,7 +16,7 @@ struct Device: Codable, Identifiable, Equatable {
     var isConnected: Bool
     var lastConnected: Date?
     
-    init(ipAddress: String, port: UInt16 = 9012, model: String? = nil) {
+    init(ipAddress: String, port: UInt16 = 8001, model: String? = nil) {
         self.id = UUID()
         self.ipAddress = ipAddress
         self.port = port

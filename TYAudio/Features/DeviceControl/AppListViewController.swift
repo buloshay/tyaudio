@@ -7,7 +7,7 @@
 
 import UIKit
 
-class AppListViewController: UIViewController {
+class AppListViewController: BaseViewController {
     
     // MARK: - UI Components
     

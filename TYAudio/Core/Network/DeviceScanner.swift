@@ -32,7 +32,7 @@ class DeviceScanner {
     private let scanQueue = DispatchQueue(label: "com.tyaudio.scanner", qos: .utility, attributes: .concurrent)
     private var activeConnections: [NWConnection] = []
     private let connectionTimeout: TimeInterval = 2.0
-    private let port: UInt16 = 9012
+    private let port: UInt16 = 8001
     
     private var scannedCount = 0
     private let totalHosts = 254

@@ -7,7 +7,7 @@
 
 import UIKit
 
-class FileBrowserViewController: UIViewController {
+class FileBrowserViewController: BaseViewController {
     
     // MARK: - UI Components
     

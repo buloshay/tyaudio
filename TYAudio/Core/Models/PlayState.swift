@@ -44,15 +44,24 @@ struct PlayState {
     }
     
     /// 获取封面URL
-    func getCoverURL(ipAddress: String, port: Int = 8001) -> URL? {
+    func getCoverURL(ipAddress: String, port: Int = 9012) -> URL? {
         if let coverURL = cover, !coverURL.isEmpty {
             return URL(string: coverURL)
         }
         
         guard !filePath.isEmpty else { return nil }
         
-        let urlString = "http://\(ipAddress):\(port)/cover?path=\(filePath)&default=t_img_album.png"
-        return URL(string: urlString.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = ipAddress
+        components.port = port
+        components.path = "/cover"
+        components.queryItems = [
+            URLQueryItem(name: "path", value: filePath),
+            URLQueryItem(name: "default", value: "t_img_album.png")
+        ]
+        
+        return components.url
     }
     
     private func formatTime(_ seconds: Int) -> String {

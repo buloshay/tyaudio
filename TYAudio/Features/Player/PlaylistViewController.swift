@@ -7,7 +7,7 @@
 
 import UIKit
 
-class PlaylistViewController: UIViewController {
+class PlaylistViewController: BaseViewController {
     
     // MARK: - UI Components
     

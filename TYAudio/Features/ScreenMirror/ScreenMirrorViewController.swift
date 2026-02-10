@@ -7,7 +7,7 @@
 
 import UIKit
 
-class ScreenMirrorViewController: UIViewController {
+class ScreenMirrorViewController: BaseViewController {
     
     // MARK: - UI Components
     
