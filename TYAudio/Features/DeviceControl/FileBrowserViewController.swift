@@ -67,13 +67,17 @@ class FileBrowserViewController: BaseViewController {
     private var isFavorites: Bool
     private var files: [FileItem] = []
     private var navigationStack: [String] = []
+    private var shouldAutoEnterSingleRoot: Bool = false
+    /// 标记是否正在等待 change_path 响应
+    private var isWaitingForChangePath: Bool = false
     
     // MARK: - Initialization
     
-    init(path: String, title: String, isFavorites: Bool = false) {
+    init(path: String, title: String, isFavorites: Bool = false, shouldAutoEnterSingleRoot: Bool = false) {
         self.currentPath = path
         self.pageTitle = title
         self.isFavorites = isFavorites
+        self.shouldAutoEnterSingleRoot = shouldAutoEnterSingleRoot
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -86,8 +90,8 @@ class FileBrowserViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        loadFiles()
         TCPSocketManager.shared.delegate = self
+        loadFiles()
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -141,22 +145,21 @@ class FileBrowserViewController: BaseViewController {
         ])
     }
     
+    /// 加载文件列表（有序流程：change_path -> 等待响应 -> playlist -> 等待响应）
     private func loadFiles() {
         loadingIndicator.startAnimating()
         files = []
         tableView.reloadData()
         emptyLabel.isHidden = true
         
-        // 先发送切换目录指令
-        TCPSocketManager.shared.send(command: CommandBuilder.changePath(dir: currentPath)) { [weak self] error in
-            guard error == nil else {
-                self?.showError()
-                return
-            }
-            // 再请求文件列表
-            let current = self?.isFavorites == false
-            TCPSocketManager.shared.send(command: CommandBuilder.playlist(nameOnly: false, current: current))
-        }
+        // 第一步：发送切换目录指令，等待响应后再发送 playlist
+        isWaitingForChangePath = true
+        TCPSocketManager.shared.send(command: CommandBuilder.changePath(dir: currentPath))
+    }
+    
+    /// change_path 响应成功后，发送获取文件列表指令
+    private func requestPlaylist() {
+        TCPSocketManager.shared.send(command: CommandBuilder.playlist(nameOnly: false, current: false))
     }
     
     private func showError() {
@@ -234,11 +237,36 @@ extension FileBrowserViewController: TCPSocketManagerDelegate {
     func tcpSocketManager(_ manager: TCPSocketManager, didChangeState state: TCPConnectionState) {}
     
     func tcpSocketManager(_ manager: TCPSocketManager, didReceiveData data: [String: Any], command: String) {
-        if command == "playlist" {
+        if command == "change_path" {
+            // 第二步：收到 change_path 响应
+            let result = data["result"] as? Int ?? -1
+            if result == -1 {
+                // 失败
+                isWaitingForChangePath = false
+                showError()
+                return
+            }
+            
+            // 成功，发送获取文件列表指令
+            isWaitingForChangePath = false
+            requestPlaylist()
+            
+        } else if command == "playlist" {
+            // 第四步：收到文件列表数据
             loadingIndicator.stopAnimating()
             
             if let list = data["list"] as? [[String: Any]] {
                 files = FileItem.fromArray(jsonArray: list)
+                
+                // 自动进入根目录（如果只有一个文件夹）
+                if shouldAutoEnterSingleRoot {
+                    shouldAutoEnterSingleRoot = false
+                    if files.count == 1, let firstItem = files.first, firstItem.isDirectory {
+                        enterDirectory(firstItem)
+                        return
+                    }
+                }
+                
                 tableView.reloadData()
                 emptyLabel.isHidden = !files.isEmpty
                 if files.isEmpty {

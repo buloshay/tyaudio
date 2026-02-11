@@ -148,9 +148,9 @@ class DeviceControlViewController: BaseViewController {
         
         var path: String {
             switch self {
-            case .hardDrive: return "/storage/emulated/0"
-            case .usb: return "/storage/usb"
-            case .tfCard: return "/storage/sdcard"
+            case .hardDrive: return "/mnt/sda"
+            case .usb: return "/mnt/usb"
+            case .tfCard: return "/mnt/tf"
             }
         }
     }
@@ -384,7 +384,7 @@ class DeviceControlViewController: BaseViewController {
         print("[User Action] DeviceControlViewController - handleFeatureAction: \(action)")
         switch action {
         case .storage(let type):
-            let vc = FileBrowserViewController(path: type.path, title: type == .hardDrive ? "硬盘" : type == .usb ? "U盘" : "TF卡")
+            let vc = FileBrowserViewController(path: type.path, title: type == .hardDrive ? "硬盘" : type == .usb ? "U盘" : "TF卡", shouldAutoEnterSingleRoot: true)
             navigationController?.pushViewController(vc, animated: true)
             
         case .category(let type):
