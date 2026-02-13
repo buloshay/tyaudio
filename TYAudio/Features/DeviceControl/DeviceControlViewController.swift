@@ -72,27 +72,6 @@ class DeviceControlViewController: BaseViewController {
     
     private var device: Device
     private var playState: PlayState?
-    private var streamingLaunchState: StreamingLaunchState = .idle
-    private var streamingSessionRetryCount = 0
-    private let maxStreamingSessionRetryCount = 3
-    private var streamingMirrorPresenting = false
-    private var streamingRemoteViewPresented = false
-    private let streamingRemoteSystems: [SCCRemoteSystem] = [.android, .linux]
-    private var streamingRemoteSystemIndex = 0
-
-    /// 流媒体启动流程状态：先等待 app/start 回包，再请求 get_session
-    private enum StreamingLaunchState {
-        case idle
-        case waitingAppAck(StreamingType)
-        case waitingSession(StreamingType)
-    }
-
-    /// 向日葵会话参数
-    private struct ScreenMirrorSessionInfo {
-        let address: String
-        let session: String
-        let soundSession: String?
-    }
     
     // MARK: - Feature Sections
     
@@ -189,9 +168,6 @@ class DeviceControlViewController: BaseViewController {
     
     deinit {
         print("[DeviceControlViewController] deinit - disconnecting TCP")
-        if ScreenMirrorService.shared.delegate === self {
-            ScreenMirrorService.shared.delegate = nil
-        }
         TCPSocketManager.shared.disconnect()
     }
     
@@ -420,7 +396,8 @@ class DeviceControlViewController: BaseViewController {
             navigationController?.pushViewController(vc, animated: true)
             
         case .streaming(let type):
-            launchStreamingApp(type)
+            let vc = StreamingLaunchViewController(type: type)
+            navigationController?.pushViewController(vc, animated: true)
             
         case .nas:
             launchNAS()
@@ -434,20 +411,6 @@ class DeviceControlViewController: BaseViewController {
         case .apps:
             let vc = AppListViewController()
             navigationController?.pushViewController(vc, animated: true)
-        }
-    }
-    
-    private func launchStreamingApp(_ type: StreamingType) {
-        streamingSessionRetryCount = 0
-        streamingMirrorPresenting = false
-        streamingRemoteViewPresented = false
-        streamingRemoteSystemIndex = 0
-        ScreenMirrorService.shared.delegate = self
-        streamingLaunchState = .waitingAppAck(type)
-        TCPSocketManager.shared.send(command: CommandBuilder.launchStreaming(type)) { [weak self] error in
-            guard let self = self, let error = error else { return }
-            self.streamingLaunchState = .idle
-            self.showAlert(title: "启动失败", message: "发送流媒体启动指令失败：\(error.localizedDescription)")
         }
     }
     
@@ -470,151 +433,6 @@ class DeviceControlViewController: BaseViewController {
         let alert = UIAlertController(title: "屏幕互动", message: "即将打开屏幕镜像功能", preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "确定", style: .default))
         present(alert, animated: true)
-    }
-
-    /// 处理流媒体 app/start 回包，成功后请求 get_session
-    private func handleStreamingAppResponse(_ data: [String: Any]) {
-        guard case .waitingAppAck(let type) = streamingLaunchState else { return }
-        guard (data["action"] as? String) == "start" else { return }
-
-        let package = (data["package"] as? String)?.lowercased()
-        guard package == type.rawValue else { return }
-
-        let resultCode = parseResultCode(from: data["result"]) ?? -1
-        guard resultCode == 0 else {
-            streamingLaunchState = .idle
-            showAlert(title: "启动失败", message: "\(type.rawValue) 启动失败，返回码：\(resultCode)")
-            return
-        }
-
-        streamingLaunchState = .waitingSession(type)
-        requestStreamingSession(type: type, delay: 3.0)
-    }
-
-    /// 处理 get_session 回包，成功后直接拉起向日葵远程控制
-    private func handleStreamingSessionResponse(_ data: [String: Any]) {
-        guard case .waitingSession(let type) = streamingLaunchState else { return }
-        guard let sessionInfo = parseSessionInfo(from: data) else {
-            streamingLaunchState = .idle
-            showAlert(title: "连接失败", message: "会话信息格式无效")
-            return
-        }
-
-        streamingMirrorPresenting = true
-        let targetSystem: SCCRemoteSystem
-        if streamingRemoteSystemIndex >= 0 && streamingRemoteSystemIndex < streamingRemoteSystems.count {
-            targetSystem = streamingRemoteSystems[streamingRemoteSystemIndex]
-        } else {
-            targetSystem = .android
-        }
-        print("[ScreenMirror] try connect with system=\(targetSystem.rawValue)")
-        ScreenMirrorService.shared.connect(
-            address: sessionInfo.address,
-            session: sessionInfo.session,
-            soundSession: sessionInfo.soundSession,
-            system: targetSystem
-        ) { [weak self] viewController in
-            guard let self = self else { return }
-            guard let remoteVC = viewController else {
-                self.streamingMirrorPresenting = false
-                self.handleStreamingMirrorConnectFailure(for: type, message: "无法创建远程桌面")
-                return
-            }
-            guard !self.streamingRemoteViewPresented else { return }
-            self.streamingRemoteViewPresented = true
-            remoteVC.modalPresentationStyle = .fullScreen
-            self.present(remoteVC, animated: true)
-        }
-    }
-
-    /// 获取流媒体远控会话，失败时统一收敛到一个错误出口
-    private func requestStreamingSession(type: StreamingType, delay: TimeInterval) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            guard let self = self else { return }
-            guard case .waitingSession(let expectedType) = self.streamingLaunchState, expectedType == type else { return }
-            TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
-                guard let self = self, let error = error else { return }
-                self.streamingLaunchState = .idle
-                self.showAlert(title: "连接失败", message: "请求会话失败：\(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// 向日葵连接失败时自动重取一次 session 再重连，提升会话未稳定场景成功率
-    private func handleStreamingMirrorConnectFailure(for type: StreamingType, message: String) {
-        guard case .waitingSession(let expectedType) = streamingLaunchState, expectedType == type else { return }
-        if streamingSessionRetryCount < maxStreamingSessionRetryCount {
-            streamingSessionRetryCount += 1
-            streamingRemoteViewPresented = false
-            requestStreamingSession(type: type, delay: 2.0)
-            return
-        }
-
-        if streamingRemoteSystemIndex + 1 < streamingRemoteSystems.count {
-            streamingRemoteSystemIndex += 1
-            streamingSessionRetryCount = 0
-            streamingRemoteViewPresented = false
-            requestStreamingSession(type: type, delay: 2.0)
-            return
-        }
-
-        streamingLaunchState = .idle
-        showAlert(title: "连接失败", message: message)
-    }
-
-    /// 兼容 Int / String 两种 result 编码
-    private func parseResultCode(from value: Any?) -> Int? {
-        if let intValue = value as? Int {
-            return intValue
-        }
-        if let stringValue = value as? String {
-            return Int(stringValue)
-        }
-        return nil
-    }
-
-    /// 兼容两类会话格式：
-    /// 1) result 为 JSON 字符串（协议新格式）
-    /// 2) address/session 直接位于顶层（兼容老格式）
-    private func parseSessionInfo(from data: [String: Any]) -> ScreenMirrorSessionInfo? {
-        if let resultString = data["result"] as? String,
-           let resultData = resultString.data(using: .utf8),
-           let jsonObject = try? JSONSerialization.jsonObject(with: resultData, options: []),
-           let resultDict = jsonObject as? [String: Any] {
-            return makeSessionInfo(from: resultDict)
-        }
-
-        if let resultDict = data["result"] as? [String: Any] {
-            return makeSessionInfo(from: resultDict)
-        }
-
-        return makeSessionInfo(from: data)
-    }
-
-    private func makeSessionInfo(from dict: [String: Any]) -> ScreenMirrorSessionInfo? {
-        guard let rawAddress = dict["address"] as? String,
-              let session = dict["session"] as? String,
-              !rawAddress.isEmpty,
-              !session.isEmpty else {
-            return nil
-        }
-        // 只保留 PHSRC:// 和 PHSRC_HTTPS:// 协议段，
-        // 移除 UsingMultiChannel://、UR://、ORTC:// 等无效段，避免向日葵 SDK 连接失败
-        let address = cleanSunflowerAddress(rawAddress)
-        let soundSession = dict["sound_session"] as? String
-        return ScreenMirrorSessionInfo(address: address, session: session, soundSession: soundSession)
-    }
-
-    /// 清理向日葵连接地址，只保留有效的 PHSRC 协议段
-    private func cleanSunflowerAddress(_ raw: String) -> String {
-        let validPrefixes = ["PHSRC://", "PHSRC_HTTPS://"]
-        let segments = raw.split(separator: ";", omittingEmptySubsequences: true)
-        let filtered = segments.filter { segment in
-            validPrefixes.contains(where: { segment.hasPrefix($0) })
-        }
-        let cleaned = filtered.map(String.init).joined(separator: ";") + ";"
-        print("[ScreenMirror] address cleaned: \(raw) -> \(cleaned)")
-        return cleaned
     }
 
     private func showAlert(title: String, message: String) {
@@ -660,12 +478,12 @@ extension DeviceControlViewController: TCPSocketManagerDelegate {
         case "play_state":
             let state = PlayState.from(json: data)
             updateMiniPlayer(with: state)
-
-        case "app":
-            handleStreamingAppResponse(data)
-
-        case "get_session", "screen_mirror_session":
-            handleStreamingSessionResponse(data)
+            
+        case "app", "get_session", "screen_mirror_session":
+            // 转发给当前 nav 栈上的 StreamingLaunchViewController
+            if let launchVC = navigationController?.viewControllers.last as? StreamingLaunchViewController {
+                launchVC.handleTCPData(data, command: command)
+            }
             
         default:
             break
@@ -674,34 +492,6 @@ extension DeviceControlViewController: TCPSocketManagerDelegate {
     
     func tcpSocketManager(_ manager: TCPSocketManager, didReceiveError error: Error) {
         print("TCP Error: \(error.localizedDescription)")
-    }
-}
-
-// MARK: - ScreenMirrorServiceDelegate
-
-extension DeviceControlViewController: ScreenMirrorServiceDelegate {
-    
-    func screenMirrorService(_ service: ScreenMirrorService, didChangeState state: ScreenMirrorState) {
-        guard case .waitingSession(let type) = streamingLaunchState else { return }
-        switch state {
-        case .connected:
-            streamingMirrorPresenting = false
-            streamingSessionRetryCount = 0
-            streamingLaunchState = .idle
-
-        case .failed(let error):
-            if streamingMirrorPresenting {
-                streamingMirrorPresenting = false
-                handleStreamingMirrorConnectFailure(for: type, message: "向日葵连接失败：\(error)")
-            }
-        case .disconnected:
-            if streamingMirrorPresenting {
-                streamingMirrorPresenting = false
-                handleStreamingMirrorConnectFailure(for: type, message: "向日葵连接断开")
-            }
-        default:
-            break
-        }
     }
 }
 

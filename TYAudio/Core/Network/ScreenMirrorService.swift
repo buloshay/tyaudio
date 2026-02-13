@@ -21,6 +21,8 @@ enum ScreenMirrorState {
 
 protocol ScreenMirrorServiceDelegate: AnyObject {
     func screenMirrorService(_ service: ScreenMirrorService, didChangeState state: ScreenMirrorState)
+    /// 向日葵远程桌面画面已出现（可用于关闭 loading）
+    func screenMirrorServiceDidDesktopAppear(_ service: ScreenMirrorService)
 }
 
 // MARK: - 服务类
@@ -64,12 +66,14 @@ class ScreenMirrorService: NSObject {
     ///   - session: 会话ID
     ///   - soundSession: 声音会话ID（可选）
     ///   - system: 被控系统类型
+    ///   - config: 桌面配置（可选），传 nil 则使用默认配置
     ///   - completion: 连接完成回调
     func connect(
         address: String,
         session: String,
         soundSession: String? = nil,
         system: SCCRemoteSystem = .android,
+        config: SCCDesktopConfig? = nil,
         completion: @escaping (UIViewController?) -> Void
     ) {
         precondition(!address.isEmpty, "Address cannot be empty")
@@ -80,10 +84,10 @@ class ScreenMirrorService: NSObject {
         desktopController = nil
         state = .connecting
         
-        // 创建桌面配置
-        let config = SCCDesktopConfig()
+        // 使用传入的配置或创建默认配置
+        let desktopConfig = config ?? SCCDesktopConfig()
         
-        print("[ScreenMirror] start connect, system=\(system.rawValue)")
+        print("[ScreenMirror] start connect, system=\(system.rawValue), enableUI=\(desktopConfig.isEnableUI)")
         
         // 连接远程桌面
         sdk.connectRemoteDestop(
@@ -91,7 +95,7 @@ class ScreenMirrorService: NSObject {
             session: session,
             soundSession: soundSession,
             system: system,
-            desktopConfig: config,
+            desktopConfig: desktopConfig,
             delegate: self
         ) { [weak self] controller in
             guard let self = self else { return }
@@ -141,6 +145,35 @@ class ScreenMirrorService: NSObject {
     var currentOperationMode: SCCDesktopOperationMode {
         return desktopController?.currentOperationMode() ?? .touch
     }
+    
+    // MARK: - Android快捷按键
+    
+    /// 向日葵 Android 返回键
+    func androidClickBack() {
+        guard let controller = desktopController else {
+            print("[ScreenMirror] androidClickBack ignored: desktopController is nil")
+            return
+        }
+        controller.androidClickBack()
+    }
+    
+    /// 向日葵 Android 菜单键
+    func androidClickMenu() {
+        guard let controller = desktopController else {
+            print("[ScreenMirror] androidClickMenu ignored: desktopController is nil")
+            return
+        }
+        controller.androidClickMenu()
+    }
+    
+    /// 向日葵 Android Home键（预留）
+    func androidClickHome() {
+        guard let controller = desktopController else {
+            print("[ScreenMirror] androidClickHome ignored: desktopController is nil")
+            return
+        }
+        controller.androidClickHome()
+    }
 }
 
 // MARK: - SCCSDKConnectStateDelegate
@@ -179,7 +212,10 @@ extension ScreenMirrorService: SCCDesktopControllerDelegate {
     }
     
     func sccDesktopDidAppear() {
-        // 远程桌面已显示
+        print("[ScreenMirror] desktop did appear")
+        DispatchQueue.main.async {
+            self.delegate?.screenMirrorServiceDidDesktopAppear(self)
+        }
     }
     
     func sccDesktopDidDisappear() {

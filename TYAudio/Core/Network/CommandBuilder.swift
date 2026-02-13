@@ -222,4 +222,9 @@ struct CommandBuilder {
     static func sendBackKey() -> [String: Any] {
         return sendKey("back")
     }
+    
+    /// 发送菜单键
+    static func sendMenuKey() -> [String: Any] {
+        return sendKey("menu")
+    }
 }

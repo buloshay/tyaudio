@@ -323,6 +323,10 @@ extension ScreenMirrorViewController: ScreenMirrorServiceDelegate {
             connectButton.isEnabled = true
         }
     }
+    
+    func screenMirrorServiceDidDesktopAppear(_ service: ScreenMirrorService) {
+        // 屏幕互动页面由 ScreenMirrorService 状态驱动，此处无需额外处理
+    }
 }
 
 // MARK: - TCPSocketManagerDelegate

@@ -180,11 +180,11 @@
 					"$(PROJECT_DIR)/TYAudio/Frameworks",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
-					INFOPLIST_FILE = TYAudio/Info.plist;
-					INFOPLIST_KEY_NSCameraUsageDescription = "需要访问相机以扫描设备二维码";
-					INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "需要访问照片以保存远程截图和录像";
-					INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "需要访问照片以读取和保存远程截图和录像";
-					INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_FILE = TYAudio/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "需要访问相机以扫描设备二维码";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "需要访问照片以保存远程截图和录像";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "需要访问照片以读取和保存远程截图和录像";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -219,11 +219,11 @@
 					"$(PROJECT_DIR)/TYAudio/Frameworks",
 				);
 				GENERATE_INFOPLIST_FILE = YES;
-					INFOPLIST_FILE = TYAudio/Info.plist;
-					INFOPLIST_KEY_NSCameraUsageDescription = "需要访问相机以扫描设备二维码";
-					INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "需要访问照片以保存远程截图和录像";
-					INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "需要访问照片以读取和保存远程截图和录像";
-					INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_FILE = TYAudio/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "需要访问相机以扫描设备二维码";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "需要访问照片以保存远程截图和录像";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "需要访问照片以读取和保存远程截图和录像";
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UIMainStoryboardFile = Main;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
