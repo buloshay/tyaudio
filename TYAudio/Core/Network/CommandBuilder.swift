@@ -165,9 +165,9 @@ struct CommandBuilder {
     
     /// 获取屏幕镜像会话信息
     /// - Returns: 屏幕镜像会话请求指令
-    /// - Note: 返回包含 address, session, sound_session 的响应
+    /// - Note: 返回命令为 get_session，result 为包含 address/session 的 JSON 字符串
     static func getScreenMirrorSession() -> [String: Any] {
-        return ["command": "screen_mirror_session"]
+        return ["command": "get_session"]
     }
 
     /// 获取会话信息 (兼容旧代码)

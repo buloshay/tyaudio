@@ -47,6 +47,8 @@ class ScreenMirrorService: NSObject {
     }
     
     private var desktopController: SCCDesktopController?
+    /// 持有一个 SDK 实例，避免每次连接都创建临时对象
+    private let sdk = SCCSDK()
     
     // MARK: - Initialization
     
@@ -61,22 +63,34 @@ class ScreenMirrorService: NSObject {
     ///   - address: 设备地址
     ///   - session: 会话ID
     ///   - soundSession: 声音会话ID（可选）
+    ///   - system: 被控系统类型
     ///   - completion: 连接完成回调
-    func connect(address: String, session: String, soundSession: String? = nil, completion: @escaping (UIViewController?) -> Void) {
+    func connect(
+        address: String,
+        session: String,
+        soundSession: String? = nil,
+        system: SCCRemoteSystem = .android,
+        completion: @escaping (UIViewController?) -> Void
+    ) {
         precondition(!address.isEmpty, "Address cannot be empty")
         precondition(!session.isEmpty, "Session cannot be empty")
         
+        // 新建连接前先清理旧桌面，避免底层通道残留影响
+        desktopController?.closeDesktop()
+        desktopController = nil
         state = .connecting
         
         // 创建桌面配置
         let config = SCCDesktopConfig()
         
+        print("[ScreenMirror] start connect, system=\(system.rawValue)")
+        
         // 连接远程桌面
-        SCCSDK().connectRemoteDestop(
+        sdk.connectRemoteDestop(
             withAddress: address,
             session: session,
             soundSession: soundSession,
-            system: .android,  // 音响设备使用 Android 系统
+            system: system,
             desktopConfig: config,
             delegate: self
         ) { [weak self] controller in
@@ -134,6 +148,7 @@ class ScreenMirrorService: NSObject {
 extension ScreenMirrorService: SCCSDKConnectStateDelegate {
     
     func sccsdkConnecting() {
+        print("[ScreenMirror] SCCSDK connecting")
         state = .connecting
     }
     
@@ -142,11 +157,14 @@ extension ScreenMirrorService: SCCSDKConnectStateDelegate {
     }
     
     func sccsdkConnectSucceed() {
+        print("[ScreenMirror] SCCSDK connect succeed")
         state = .connected
     }
     
     func sccsdkConnectFailedWithErrorCode(_ errorCode: Int, errorMessage: String) {
-        state = .failed(error: errorMessage)
+        let detail = "[\(errorCode)] \(errorMessage)"
+        print("[ScreenMirror] SCCSDK connect failed: \(detail)")
+        state = .failed(error: detail)
     }
 }
 
@@ -155,6 +173,7 @@ extension ScreenMirrorService: SCCSDKConnectStateDelegate {
 extension ScreenMirrorService: SCCDesktopControllerDelegate {
     
     func sccDesktopDisconnect(_ isActive: Bool) {
+        print("[ScreenMirror] desktop disconnect, isActive=\(isActive)")
         state = .disconnected
         desktopController = nil
     }

@@ -332,32 +332,66 @@ extension ScreenMirrorViewController: TCPSocketManagerDelegate {
     func tcpSocketManager(_ manager: TCPSocketManager, didChangeState state: TCPConnectionState) {}
     
     func tcpSocketManager(_ manager: TCPSocketManager, didReceiveData data: [String: Any], command: String) {
-        if command == "screen_mirror_session" {
-            // 解析会话信息
-            guard let address = data["address"] as? String,
-                  let session = data["session"] as? String else {
-                showError("无法获取会话信息")
-                return
-            }
-            
-            let soundSession = data["sound_session"] as? String
-            
-            // 连接远程桌面
-            ScreenMirrorService.shared.connect(
-                address: address,
-                session: session,
-                soundSession: soundSession
-            ) { [weak self] viewController in
-                if let vc = viewController {
-                    self?.showRemoteDesktop(vc)
-                } else {
-                    self?.showError("无法创建远程桌面")
-                }
+        guard command == "get_session" || command == "screen_mirror_session" else { return }
+        guard let sessionInfo = parseSessionInfo(from: data) else {
+            showError("无法获取会话信息")
+            return
+        }
+        
+        // 连接远程桌面
+        ScreenMirrorService.shared.connect(
+            address: sessionInfo.address,
+            session: sessionInfo.session,
+            soundSession: sessionInfo.soundSession
+        ) { [weak self] viewController in
+            if let vc = viewController {
+                self?.showRemoteDesktop(vc)
+            } else {
+                self?.showError("无法创建远程桌面")
             }
         }
     }
     
     func tcpSocketManager(_ manager: TCPSocketManager, didReceiveError error: Error) {
         showError("通信错误: \(error.localizedDescription)")
+    }
+
+    /// 兼容两类会话格式：
+    /// 1) result 为 JSON 字符串（新协议）
+    /// 2) address/session 在顶层（旧协议）
+    private func parseSessionInfo(from data: [String: Any]) -> (address: String, session: String, soundSession: String?)? {
+        if let resultString = data["result"] as? String,
+           let resultData = resultString.data(using: .utf8),
+           let jsonObject = try? JSONSerialization.jsonObject(with: resultData, options: []),
+           let resultDict = jsonObject as? [String: Any] {
+            return makeSessionInfo(from: resultDict)
+        }
+        
+        if let resultDict = data["result"] as? [String: Any] {
+            return makeSessionInfo(from: resultDict)
+        }
+        
+        return makeSessionInfo(from: data)
+    }
+    
+    private func makeSessionInfo(from dict: [String: Any]) -> (address: String, session: String, soundSession: String?)? {
+        guard let rawAddress = dict["address"] as? String,
+              let session = dict["session"] as? String,
+              !rawAddress.isEmpty,
+              !session.isEmpty else {
+            return nil
+        }
+        let address = cleanSunflowerAddress(rawAddress)
+        return (address, session, dict["sound_session"] as? String)
+    }
+
+    /// 清理向日葵连接地址，只保留有效的 PHSRC 协议段
+    private func cleanSunflowerAddress(_ raw: String) -> String {
+        let validPrefixes = ["PHSRC://", "PHSRC_HTTPS://"]
+        let segments = raw.split(separator: ";", omittingEmptySubsequences: true)
+        let filtered = segments.filter { segment in
+            validPrefixes.contains(where: { segment.hasPrefix($0) })
+        }
+        return filtered.map(String.init).joined(separator: ";") + ";"
     }
 }
