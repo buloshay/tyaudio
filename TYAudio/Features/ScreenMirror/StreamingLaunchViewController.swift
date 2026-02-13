@@ -265,7 +265,7 @@ class StreamingLaunchViewController: BaseViewController {
         // ── 2. 远程桌面区域（bottomControlBar 上方）──
         view.addSubviewWithAutoLayout(remoteDesktopContainer)
         NSLayoutConstraint.activate([
-            remoteDesktopContainer.topAnchor.constraint(equalTo: view.topAnchor),
+            remoteDesktopContainer.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             remoteDesktopContainer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             remoteDesktopContainer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             remoteDesktopContainer.bottomAnchor.constraint(equalTo: bottomControlBar.topAnchor)
@@ -528,6 +528,10 @@ class StreamingLaunchViewController: BaseViewController {
     
     /// 断开向日葵连接，移除子 VC，pop 回上一页
     private func disconnectAndPop() {
+        // 防止重复调用
+        guard launchState != .idle else { return }
+        launchState = .idle
+        
         ScreenMirrorService.shared.disconnect()
         
         // 移除远程桌面子控制器
