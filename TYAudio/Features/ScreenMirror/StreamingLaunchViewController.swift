@@ -247,13 +247,13 @@ class StreamingLaunchViewController: BaseViewController {
             bottomControlBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             bottomControlBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             bottomControlBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            bottomControlBar.heightAnchor.constraint(equalToConstant: 64),
             
             // 按钮容器
             buttonStackView.topAnchor.constraint(equalTo: bottomControlBar.topAnchor),
             buttonStackView.leadingAnchor.constraint(equalTo: bottomControlBar.leadingAnchor),
             buttonStackView.trailingAnchor.constraint(equalTo: bottomControlBar.trailingAnchor),
             buttonStackView.bottomAnchor.constraint(equalTo: bottomControlBar.safeAreaLayoutGuide.bottomAnchor),
+            buttonStackView.heightAnchor.constraint(equalToConstant: 60),
             
             // 分隔线
             separator.topAnchor.constraint(equalTo: bottomControlBar.topAnchor),
