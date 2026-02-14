@@ -396,17 +396,20 @@ class DeviceControlViewController: BaseViewController {
             navigationController?.pushViewController(vc, animated: true)
             
         case .streaming(let type):
-            let vc = StreamingLaunchViewController(type: type)
+            let vc = StreamingLaunchViewController(mode: .streaming(type))
             navigationController?.pushViewController(vc, animated: true)
             
         case .nas:
-            launchNAS()
+            let vc = StreamingLaunchViewController(mode: .nas)
+            navigationController?.pushViewController(vc, animated: true)
             
         case .screenMirror:
-            openScreenMirror()
+            let vc = StreamingLaunchViewController(mode: .screenMirror)
+            navigationController?.pushViewController(vc, animated: true)
             
         case .settings:
-            launchSettings()
+            let vc = StreamingLaunchViewController(mode: .settings)
+            navigationController?.pushViewController(vc, animated: true)
             
         case .apps:
             let vc = AppListViewController()
@@ -414,26 +417,7 @@ class DeviceControlViewController: BaseViewController {
         }
     }
     
-    private func launchNAS() {
-        TCPSocketManager.shared.send(command: CommandBuilder.getSession())
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            TCPSocketManager.shared.send(command: CommandBuilder.launchNAS())
-        }
-    }
-    
-    private func launchSettings() {
-        TCPSocketManager.shared.send(command: CommandBuilder.getSession())
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-            TCPSocketManager.shared.send(command: CommandBuilder.launchSettings())
-        }
-    }
-    
-    private func openScreenMirror() {
-        // TODO: 集成向日葵SDK
-        let alert = UIAlertController(title: "屏幕互动", message: "即将打开屏幕镜像功能", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "确定", style: .default))
-        present(alert, animated: true)
-    }
+
 
     private func showAlert(title: String, message: String) {
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)

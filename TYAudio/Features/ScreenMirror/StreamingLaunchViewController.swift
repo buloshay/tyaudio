@@ -2,7 +2,8 @@
 //  StreamingLaunchViewController.swift
 //  TYAudio
 //
-//  流媒体启动页（全流程）
+//  统一启动页（全流程）
+//  支持四种入口：流媒体 / NAS / 设置 / 屏幕互动
 //  处理 启动APP → 请求session → 连接向日葵 → 内嵌远程桌面
 //
 //  注意：本页面不直接持有 TCPSocketManager delegate，
@@ -14,11 +15,28 @@
 
 import UIKit
 
+/// 启动模式：描述四种不同入口的流程差异
+enum LaunchMode {
+    case streaming(StreamingType)  // 流媒体：启动APP → get_session → 连接
+    case nas                       // NAS：get_session → 等2秒 → launchNAS → 连接
+    case settings                  // 设置：get_session → 等2秒 → launchSettings → 连接
+    case screenMirror              // 屏幕互动：get_session → 直接连接
+    
+    var displayName: String {
+        switch self {
+        case .streaming(let type): return type.rawValue.uppercased()
+        case .nas: return "NAS"
+        case .settings: return "设置"
+        case .screenMirror: return "屏幕互动"
+        }
+    }
+}
+
 class StreamingLaunchViewController: BaseViewController {
     
     // MARK: - Properties
     
-    private let streamingType: StreamingType
+    private let launchMode: LaunchMode
     
     /// 启动流程状态
     private enum LaunchState {
@@ -37,36 +55,10 @@ class StreamingLaunchViewController: BaseViewController {
     /// 向日葵 SDK 返回的远程桌面 ViewController
     private var remoteDesktopVC: UIViewController?
     
-    // MARK: - UI Components（loading 阶段使用）
+    // MARK: - Error UI
     
-    /// Loading 指示器
-    private lazy var loadingIndicator: UIActivityIndicatorView = {
-        let indicator = UIActivityIndicatorView(style: .large)
-        indicator.color = .accent
-        indicator.hidesWhenStopped = true
-        return indicator
-    }()
-    
-    /// 状态文字
-    private lazy var statusLabel: UILabel = {
-        let label = UILabel()
-        label.text = "正在启动..."
-        label.font = .systemFont(ofSize: 15, weight: .medium)
-        label.textColor = .textSecondary
-        label.textAlignment = .center
-        label.numberOfLines = 0
-        return label
-    }()
-    
-    /// loading 阶段的容器视图
-    private lazy var loadingContainerView: UIView = {
-        let v = UIView()
-        v.backgroundColor = .background
-        return v
-    }()
-    
-    /// 返回按钮（错误时显示）
-    private var errorReturnButton: UIButton?
+    private var errorLabel: UILabel?
+    private var errorButton: UIButton?
     
     // MARK: - 远程桌面 UI（旋转方式实现横屏）
     
@@ -132,30 +124,7 @@ class StreamingLaunchViewController: BaseViewController {
         return button
     }()
     
-    /// Loading 遮罩层（覆盖在远程桌面之上）
-    private lazy var remoteLoadingOverlay: UIView = {
-        let v = UIView()
-        v.backgroundColor = UIColor(white: 0, alpha: 0.8)
-        return v
-    }()
-    
-    /// 远程桌面 Loading 指示器
-    private lazy var remoteLoadingIndicator: UIActivityIndicatorView = {
-        let indicator = UIActivityIndicatorView(style: .large)
-        indicator.color = .white
-        indicator.hidesWhenStopped = true
-        return indicator
-    }()
-    
-    /// 远程桌面 Loading 文字
-    private lazy var remoteLoadingLabel: UILabel = {
-        let label = UILabel()
-        label.text = "正在连接远程桌面..."
-        label.font = .systemFont(ofSize: 15, weight: .medium)
-        label.textColor = .white
-        label.textAlignment = .center
-        return label
-    }()
+
     
     // MARK: - Orientation（始终保持竖屏）
     
@@ -173,8 +142,8 @@ class StreamingLaunchViewController: BaseViewController {
     
     // MARK: - Initialization
     
-    init(type: StreamingType) {
-        self.streamingType = type
+    init(mode: LaunchMode) {
+        self.launchMode = mode
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -196,7 +165,7 @@ class StreamingLaunchViewController: BaseViewController {
         navigationItem.hidesBackButton = true
         navigationItem.leftBarButtonItem = nil
         navigationController?.setNavigationBarHidden(true, animated: false)
-        setupLoadingUI()
+        view.backgroundColor = .background
         startLaunch()
     }
     
@@ -213,13 +182,7 @@ class StreamingLaunchViewController: BaseViewController {
     
     // MARK: - Setup Loading UI
     
-    private func setupLoadingUI() {
-        view.backgroundColor = .background
-        
-        // 使用 loadingContainerView 包裹所有 loading 阶段 UI
-        view.addSubviewWithAutoLayout(loadingContainerView)
-        loadingContainerView.fillSuperview()
-    }
+
     
     // MARK: - Setup Remote Desktop UI（旋转横屏布局）
     
@@ -281,23 +244,7 @@ class StreamingLaunchViewController: BaseViewController {
             rotatedContainer.heightAnchor.constraint(equalTo: remoteDesktopContainer.widthAnchor)
         ])
         
-        // ── 4. Loading 遮罩层（覆盖整个远程桌面区域，不旋转）──
-        view.addSubviewWithAutoLayout(remoteLoadingOverlay)
-        remoteLoadingOverlay.addSubviewWithAutoLayout(remoteLoadingIndicator)
-        remoteLoadingOverlay.addSubviewWithAutoLayout(remoteLoadingLabel)
-        
-        NSLayoutConstraint.activate([
-            remoteLoadingOverlay.topAnchor.constraint(equalTo: view.topAnchor),
-            remoteLoadingOverlay.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            remoteLoadingOverlay.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            remoteLoadingOverlay.bottomAnchor.constraint(equalTo: bottomControlBar.topAnchor),
-            
-            remoteLoadingIndicator.centerXAnchor.constraint(equalTo: remoteLoadingOverlay.centerXAnchor),
-            remoteLoadingIndicator.centerYAnchor.constraint(equalTo: remoteLoadingOverlay.centerYAnchor, constant: -20),
-            
-            remoteLoadingLabel.topAnchor.constraint(equalTo: remoteLoadingIndicator.bottomAnchor, constant: 16),
-            remoteLoadingLabel.centerXAnchor.constraint(equalTo: remoteLoadingOverlay.centerXAnchor)
-        ])
+
         
         // 先让布局生效，再应用旋转 transform
         view.layoutIfNeeded()
@@ -308,16 +255,44 @@ class StreamingLaunchViewController: BaseViewController {
     
     /// 开始启动流程
     private func startLaunch() {
-        launchState = .waitingAppAck
-        statusLabel.text = "正在启动 \(streamingType.rawValue.uppercased())..."
-        loadingIndicator.startAnimating()
-        
         ScreenMirrorService.shared.delegate = self
         
-        // 发送启动指令（TCP 消息由 DeviceControlViewController 转发）
-        TCPSocketManager.shared.send(command: CommandBuilder.launchStreaming(streamingType)) { [weak self] error in
-            guard let self = self, let error = error else { return }
-            self.showError("发送启动指令失败：\(error.localizedDescription)")
+        switch launchMode {
+        case .streaming(let type):
+            // 流媒体：先启动 APP，等待 ack 后再请求 session
+            launchState = .waitingAppAck
+            showLoading(message: "正在启动 \(type.rawValue.uppercased())...")
+            TCPSocketManager.shared.send(command: CommandBuilder.launchStreaming(type)) { [weak self] error in
+                guard let self = self, let error = error else { return }
+                self.showError("发送启动指令失败：\(error.localizedDescription)")
+            }
+            
+        case .nas:
+            // NAS：直接请求 session
+            launchState = .waitingSession
+            showLoading(message: "正在连接 NAS...")
+            TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
+                guard let self = self, let error = error else { return }
+                self.showError("请求会话失败：\(error.localizedDescription)")
+            }
+            
+        case .settings:
+            // 设置：直接请求 session
+            launchState = .waitingSession
+            showLoading(message: "正在连接设置...")
+            TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
+                guard let self = self, let error = error else { return }
+                self.showError("请求会话失败：\(error.localizedDescription)")
+            }
+            
+        case .screenMirror:
+            // 屏幕互动：直接请求 session
+            launchState = .waitingSession
+            showLoading(message: "正在连接屏幕互动...")
+            TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
+                guard let self = self, let error = error else { return }
+                self.showError("请求会话失败：\(error.localizedDescription)")
+            }
         }
     }
     
@@ -336,23 +311,26 @@ class StreamingLaunchViewController: BaseViewController {
     
     // MARK: - Private Flow Handlers
     
-    /// 处理 app/start 回包
+    /// 处理 app/start 回包（仅流媒体模式使用）
     private func handleAppStartResponse(_ data: [String: Any]) {
         guard launchState == .waitingAppAck else { return }
         guard (data["action"] as? String) == "start" else { return }
         
+        // 仅流媒体模式需要检查 package
+        guard case .streaming(let type) = launchMode else { return }
+        
         let package = (data["package"] as? String)?.lowercased()
-        guard package == streamingType.rawValue else { return }
+        guard package == type.rawValue else { return }
         
         let resultCode = parseResultCode(from: data["result"]) ?? -1
         guard resultCode == 0 else {
-            showError("\(streamingType.rawValue.uppercased()) 启动失败，返回码：\(resultCode)")
+            showError("\(type.rawValue.uppercased()) 启动失败，返回码：\(resultCode)")
             return
         }
         
         // 收到启动成功，直接请求 session（无延时）
         launchState = .waitingSession
-        statusLabel.text = "正在获取会话..."
+        showLoading(message: "正在获取会话...")
         TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
             guard let self = self, let error = error else { return }
             self.showError("请求会话失败：\(error.localizedDescription)")
@@ -367,8 +345,33 @@ class StreamingLaunchViewController: BaseViewController {
             return
         }
         
+        switch launchMode {
+        case .nas:
+            // NAS：收到 session 后，等 2 秒发 launchNAS，然后连接
+            showLoading(message: "正在启动 NAS...")
+            self.connectSunflower(with: sessionInfo)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                TCPSocketManager.shared.send(command: CommandBuilder.launchNAS())
+            }
+            
+        case .settings:
+            // 设置：收到 session 后，等 2 秒发 launchSettings，然后连接
+            showLoading(message: "正在启动设置...")
+            self.connectSunflower(with: sessionInfo)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
+                TCPSocketManager.shared.send(command: CommandBuilder.launchSettings())
+            }
+            
+        case .streaming, .screenMirror:
+            // 流媒体 / 屏幕互动：收到 session 后直接连接
+            connectSunflower(with: sessionInfo)
+        }
+    }
+    
+    /// 连接向日葵远程桌面
+    private func connectSunflower(with sessionInfo: SessionInfo) {
         launchState = .connecting
-        statusLabel.text = "正在连接远程桌面..."
+        showLoading(message: "正在连接远程桌面...")
         
         // 创建配置，隐藏向日葵默认 UI
         let config = SCCDesktopConfig()
@@ -400,14 +403,10 @@ class StreamingLaunchViewController: BaseViewController {
     
     /// 隐藏 loading UI，设置旋转横屏布局，嵌入远程桌面 VC
     private func embedRemoteDesktop(_ remoteVC: UIViewController) {
-        // 1. 隐藏 loading 容器
-        loadingContainerView.isHidden = true
-        loadingIndicator.stopAnimating()
-        
-        // 2. 设置远程桌面 UI（旋转容器 + 底部按钮栏）
+        // 1. 设置远程桌面 UI（旋转容器 + 底部按钮栏）
         setupRemoteDesktopUI()
         
-        // 3. 将向日葵远程桌面 VC 以 child VC 方式内嵌到旋转容器
+        // 2. 将向日葵远程桌面 VC 以 child VC 方式内嵌到旋转容器
         print("[StreamingLaunch] embed remoteVC type: \(type(of: remoteVC))")
         prepareRemoteDesktopController(remoteVC)
         self.remoteDesktopVC = remoteVC
@@ -417,9 +416,8 @@ class StreamingLaunchViewController: BaseViewController {
         remoteVC.didMove(toParent: self)
         hideEmbeddedNavigationIfNeeded()
         
-        // 4. 显示 loading 遮罩
-        remoteLoadingOverlay.isHidden = false
-        remoteLoadingIndicator.startAnimating()
+        // 3. 继续显示 Loading
+        showLoading(message: "正在连接远程桌面...")
         
         setNeedsStatusBarAppearanceUpdate()
         
@@ -453,25 +451,28 @@ class StreamingLaunchViewController: BaseViewController {
     
     // MARK: - Remote Loading
     
-    private func hideRemoteLoading() {
-        UIView.animate(withDuration: 0.3) {
-            self.remoteLoadingOverlay.alpha = 0
-        } completion: { _ in
-            self.remoteLoadingOverlay.isHidden = true
-            self.remoteLoadingIndicator.stopAnimating()
-            self.remoteLoadingOverlay.alpha = 1  // 重置以便复用
-        }
-    }
+
     
     // MARK: - Error Handling
     
     private func showError(_ message: String) {
         launchState = .idle
-        loadingIndicator.stopAnimating()
-        statusLabel.text = message
-        statusLabel.textColor = .systemRed
+        hideLoading(animated: true)
         
-        guard errorReturnButton == nil else { return }
+        // 如果已显示错误页，仅更新文字
+        if let label = errorLabel {
+            label.text = message
+            return
+        }
+        
+        // 显示错误信息
+        let label = UILabel()
+        label.text = message
+        label.textColor = .systemRed
+        label.font = .systemFont(ofSize: 16, weight: .medium)
+        label.textAlignment = .center
+        label.numberOfLines = 0
+        
         let button = UIButton(type: .system)
         button.setTitle("返回", for: .normal)
         button.setTitleColor(.white, for: .normal)
@@ -480,14 +481,23 @@ class StreamingLaunchViewController: BaseViewController {
         button.setCornerRadius(12)
         button.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         
-        loadingContainerView.addSubviewWithAutoLayout(button)
+        view.addSubviewWithAutoLayout(label)
+        view.addSubviewWithAutoLayout(button)
+        
         NSLayoutConstraint.activate([
-            button.centerXAnchor.constraint(equalTo: loadingContainerView.centerXAnchor),
-            button.topAnchor.constraint(equalTo: statusLabel.bottomAnchor, constant: 30),
+            label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -40),
+            label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 30),
+            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -30),
+            
+            button.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            button.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 30),
             button.widthAnchor.constraint(equalToConstant: 120),
             button.heightAnchor.constraint(equalToConstant: 44)
         ])
-        errorReturnButton = button
+        
+        self.errorLabel = label
+        self.errorButton = button
     }
     
     // MARK: - Actions
@@ -623,6 +633,6 @@ extension StreamingLaunchViewController: ScreenMirrorServiceDelegate {
     
     func screenMirrorServiceDidDesktopAppear(_ service: ScreenMirrorService) {
         print("[StreamingLaunch] desktop appeared, hiding remote loading")
-        hideRemoteLoading()
+        hideLoading()
     }
 }
