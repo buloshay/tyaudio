@@ -29,9 +29,32 @@ class TCPSocketManager {
     
     // MARK: - Properties
     
-    static let shared = TCPSocketManager()
+    private struct WeakDelegate {
+        weak var value: TCPSocketManagerDelegate?
+        init(_ value: TCPSocketManagerDelegate) {
+            self.value = value
+        }
+    }
     
-    weak var delegate: TCPSocketManagerDelegate?
+    private var delegates: [WeakDelegate] = []
+    
+    /// 添加代理
+    func addDelegate(_ delegate: TCPSocketManagerDelegate) {
+        // 清理已释放的代理
+        delegates = delegates.filter { $0.value != nil }
+        // 避免重复添加
+        if !delegates.contains(where: { $0.value === delegate }) {
+            delegates.append(WeakDelegate(delegate))
+        }
+    }
+    
+    /// 移除代理
+    func removeDelegate(_ delegate: TCPSocketManagerDelegate) {
+        delegates = delegates.filter { $0.value != nil && $0.value !== delegate }
+    }
+    
+    // MARK: - Properties
+    static let shared = TCPSocketManager()
     
     private var connection: NWConnection?
     private let queue = DispatchQueue(label: "com.tyaudio.tcp", qos: .userInitiated)
@@ -42,7 +65,7 @@ class TCPSocketManager {
             DispatchQueue.main.async { [weak self] in
                 guard let self = self else { return }
                 print("TCP Connection state changed: \(newState)")
-                self.delegate?.tcpSocketManager(self, didChangeState: newState)
+                self.notifyDelegates { $0.tcpSocketManager(self, didChangeState: newState) }
             }
         }
     }
@@ -180,7 +203,7 @@ class TCPSocketManager {
             if let error = error {
                 print("[TCP] Error receiving length: \(error)")
                 DispatchQueue.main.async {
-                    self.delegate?.tcpSocketManager(self, didReceiveError: error)
+                    self.notifyDelegates { $0.tcpSocketManager(self, didReceiveError: error) }
                 }
                 return
             }
@@ -213,7 +236,7 @@ class TCPSocketManager {
             if let error = error {
                 print("Error receiving content: \(error)")
                 DispatchQueue.main.async {
-                    self.delegate?.tcpSocketManager(self, didReceiveError: error)
+                    self.notifyDelegates { $0.tcpSocketManager(self, didReceiveError: error) }
                 }
                 return
             }
@@ -243,13 +266,25 @@ class TCPSocketManager {
                 }
                 
                 DispatchQueue.main.async {
-                    self.delegate?.tcpSocketManager(self, didReceiveData: json, command: command)
+                    self.notifyDelegates { $0.tcpSocketManager(self, didReceiveData: json, command: command) }
                 }
             }
         } catch {
             print("Error parsing received data: \(error)")
             DispatchQueue.main.async {
-                self.delegate?.tcpSocketManager(self, didReceiveError: error)
+                self.notifyDelegates { $0.tcpSocketManager(self, didReceiveError: error) }
+            }
+        }
+    }
+    
+    /// 通知所有代理
+    private func notifyDelegates(_ block: (TCPSocketManagerDelegate) -> Void) {
+        // 清理已释放的代理
+        delegates = delegates.filter { $0.value != nil }
+        
+        for delegate in delegates {
+            if let value = delegate.value {
+                block(value)
             }
         }
     }

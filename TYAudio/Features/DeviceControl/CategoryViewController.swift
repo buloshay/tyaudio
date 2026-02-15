@@ -11,26 +11,7 @@ class CategoryViewController: BaseViewController {
     
     // MARK: - UI Components
     
-    private lazy var headerView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .cardBackground
-        return view
-    }()
-    
-    private lazy var backButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        button.tintColor = .textPrimary
-        button.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-        return button
-    }()
-    
-    private lazy var titleLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 18, weight: .bold)
-        label.textColor = .textPrimary
-        return label
-    }()
+
     
     private lazy var tableView: UITableView = {
         let table = UITableView(frame: .zero, style: .plain)
@@ -53,14 +34,17 @@ class CategoryViewController: BaseViewController {
     // MARK: - Properties
     
     private let categoryType: CategoryType
+    private let ipAddress: String
     private var items: [Any] = []  // 可以是 CategoryItem 或 FileItem
     private var isShowingSongs = false
     private var selectedCategoryName: String?
+    private var currentPlayState: PlayState?
     
     // MARK: - Initialization
     
-    init(categoryType: CategoryType) {
+    init(categoryType: CategoryType, ipAddress: String) {
         self.categoryType = categoryType
+        self.ipAddress = ipAddress
         super.init(nibName: nil, bundle: nil)
     }
     
@@ -73,8 +57,12 @@ class CategoryViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        setupNavBar(title: "") // Title set in updateTitle()
+        updateTitle()
         loadCategory()
-        TCPSocketManager.shared.delegate = self
+        TCPSocketManager.shared.addDelegate(self)
+        // 获取当前播放状态
+        TCPSocketManager.shared.send(command: CommandBuilder.getPlayState())
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -87,34 +75,12 @@ class CategoryViewController: BaseViewController {
     private func setupUI() {
         view.backgroundColor = .background
         
-        // Header
-        view.addSubviewWithAutoLayout(headerView)
-        headerView.addSubviewWithAutoLayout(backButton)
-        headerView.addSubviewWithAutoLayout(titleLabel)
-        
-        NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 100),
-            
-            backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 12),
-            backButton.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -12),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
-            backButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            titleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
-            titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor)
-        ])
-        
-        updateTitle()
-        
         // Table View
         view.addSubviewWithAutoLayout(tableView)
         view.addSubviewWithAutoLayout(loadingIndicator)
         
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            tableView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -126,13 +92,13 @@ class CategoryViewController: BaseViewController {
     
     private func updateTitle() {
         if let name = selectedCategoryName {
-            titleLabel.text = name
+            navTitleLabel.text = name
         } else {
             switch categoryType {
-            case .music: titleLabel.text = "单曲"
-            case .album: titleLabel.text = "专辑"
-            case .artist: titleLabel.text = "歌手"
-            case .style: titleLabel.text = "风格"
+            case .music: navTitleLabel.text = "单曲"
+            case .album: navTitleLabel.text = "专辑"
+            case .artist: navTitleLabel.text = "歌手"
+            case .style: navTitleLabel.text = "风格"
             }
         }
     }
@@ -144,11 +110,16 @@ class CategoryViewController: BaseViewController {
         
         let command = CommandBuilder.category(type: categoryType, name: selectedCategoryName ?? "")
         TCPSocketManager.shared.send(command: command)
+        
+        // 如果是歌曲列表，重新获取播放状态以更新高亮
+        if isShowingSongs || categoryType == .music {
+            TCPSocketManager.shared.send(command: CommandBuilder.getPlayState())
+        }
     }
     
     // MARK: - Actions
     
-    @objc private func backTapped() {
+    override func navBackTapped() {
         if isShowingSongs {
             // 返回分类列表
             isShowingSongs = false
@@ -169,6 +140,36 @@ class CategoryViewController: BaseViewController {
     
     private func playSong(at index: Int) {
         TCPSocketManager.shared.send(command: CommandBuilder.playAt(index: index))
+        
+        // Optimistically update state
+        if currentPlayState == nil {
+            currentPlayState = PlayState()
+        }
+        currentPlayState?.currentIndex = index
+        currentPlayState?.status = 1 // Playing
+        
+        // Find the song title to match logic in cellForRowAt
+        if let fileItem = items[index] as? FileItem {
+            currentPlayState?.title = fileItem.name
+            currentPlayState?.filePath = fileItem.path
+        }
+        
+        updatePlayingState()
+    }
+    
+    private func updatePlayingState() {
+        guard let current = currentPlayState else { return }
+        
+        // Iterate visible cells to update state without reloading table
+        for cell in tableView.visibleCells {
+            if let indexPath = tableView.indexPath(for: cell),
+               let fileItem = items[indexPath.row] as? FileItem,
+               let categoryCell = cell as? CategoryItemCell {
+                
+                let isPlaying = fileItem.name == current.title
+                categoryCell.updatePlayingState(isPlaying)
+            }
+        }
     }
 }
 
@@ -189,7 +190,9 @@ extension CategoryViewController: UITableViewDataSource {
         if let categoryItem = item as? CategoryItem {
             cell.configure(with: categoryItem)
         } else if let fileItem = item as? FileItem {
-            cell.configure(with: fileItem)
+            // 检查是否是当前播放的歌曲
+            let isPlaying = isShowingSongs && fileItem.name == currentPlayState?.title
+            cell.configure(with: fileItem, isPlaying: isPlaying, ipAddress: ipAddress)
         }
         
         return cell
@@ -235,6 +238,12 @@ extension CategoryViewController: TCPSocketManagerDelegate {
                 }
                 tableView.reloadData()
             }
+        } else if command == "play_state" {
+            currentPlayState = PlayState.from(json: data)
+            // 只有在显示歌曲列表时才刷新，避免不必要的UI更新
+            if isShowingSongs || categoryType == .music {
+                updatePlayingState()
+            }
         }
     }
     
@@ -261,6 +270,22 @@ class CategoryItemCell: UITableViewCell {
         imageView.contentMode = .scaleAspectFit
         imageView.tintColor = .accent
         return imageView
+    }()
+    
+    private lazy var coverImageView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.layer.cornerRadius = 4
+        imageView.backgroundColor = .secondaryBackground
+        imageView.isHidden = true
+        return imageView
+    }()
+    
+    private lazy var waveformView: WaveformView = {
+        let view = WaveformView()
+        view.isHidden = true
+        return view
     }()
     
     private lazy var nameLabel: UILabel = {
@@ -301,6 +326,8 @@ class CategoryItemCell: UITableViewCell {
         
         contentView.addSubviewWithAutoLayout(containerView)
         containerView.addSubviewWithAutoLayout(iconImageView)
+        containerView.addSubviewWithAutoLayout(coverImageView)
+        containerView.addSubviewWithAutoLayout(waveformView)
         containerView.addSubviewWithAutoLayout(nameLabel)
         containerView.addSubviewWithAutoLayout(countLabel)
         containerView.addSubviewWithAutoLayout(arrowImageView)
@@ -316,9 +343,19 @@ class CategoryItemCell: UITableViewCell {
             iconImageView.widthAnchor.constraint(equalToConstant: 28),
             iconImageView.heightAnchor.constraint(equalToConstant: 28),
             
-            nameLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 12),
+            coverImageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 12),
+            coverImageView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            coverImageView.widthAnchor.constraint(equalToConstant: 40),
+            coverImageView.heightAnchor.constraint(equalToConstant: 40),
+            
+            waveformView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+            waveformView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            waveformView.widthAnchor.constraint(equalToConstant: 20),
+            waveformView.heightAnchor.constraint(equalToConstant: 16),
+            
+            nameLabel.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12),
             nameLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            nameLabel.trailingAnchor.constraint(equalTo: countLabel.leadingAnchor, constant: -8),
+            nameLabel.trailingAnchor.constraint(equalTo: waveformView.leadingAnchor, constant: -8),
             
             countLabel.trailingAnchor.constraint(equalTo: arrowImageView.leadingAnchor, constant: -8),
             countLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
@@ -332,8 +369,12 @@ class CategoryItemCell: UITableViewCell {
     
     func configure(with item: CategoryItem) {
         nameLabel.text = item.name
+        nameLabel.textColor = .textPrimary
         countLabel.text = item.itemCount > 0 ? "\(item.itemCount)首" : ""
         arrowImageView.isHidden = false
+        iconImageView.isHidden = false
+        coverImageView.isHidden = true
+        waveformView.stopAnimating()
         
         switch item.type {
         case .album:
@@ -345,12 +386,72 @@ class CategoryItemCell: UITableViewCell {
         case .music:
             iconImageView.image = UIImage(systemName: "music.note")
         }
+        
+        // Reset constraints for non-song items
+        updateConstraintsForSong(false)
     }
     
-    func configure(with item: FileItem) {
+    func configure(with item: FileItem, isPlaying: Bool = false, ipAddress: String? = nil) {
         nameLabel.text = item.name
-        iconImageView.image = UIImage(systemName: "music.note")
+        // Ensure blue color as requested
+        nameLabel.textColor = isPlaying ? .systemBlue : .textPrimary
+        
         countLabel.text = ""
         arrowImageView.isHidden = true
+        iconImageView.isHidden = true
+        coverImageView.isHidden = false
+        
+        if isPlaying {
+            waveformView.startAnimating()
+        } else {
+            waveformView.stopAnimating()
+        }
+        
+        // Reset constraints for song items
+        updateConstraintsForSong(true)
+        
+        // Load cover
+        coverImageView.image = UIImage(systemName: "music.note")
+        coverImageView.tintColor = isPlaying ? .systemBlue : .textSecondary
+        
+        if let ip = ipAddress {
+             let urlStr = "http://\(ip):9012/cover?path=\(item.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&default=t_img_album.png"
+             if let url = URL(string: urlStr) {
+                 loadImage(from: url)
+             }
+        }
+    }
+    
+    private func updateConstraintsForSong(_ isSong: Bool) {
+        // Simple way to adjust layout: hide/show views is handled in configure
+        // nameLabel leading constraint adjustment could be done here if needed
+        // For now, we use a shared layout where inactive image views are hidden
+        if isSong {
+             nameLabel.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12).isActive = true
+        } else {
+             nameLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 12).isActive = true
+        }
+    }
+    
+    private func loadImage(from url: URL) {
+        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            if let data = data, let image = UIImage(data: data) {
+                DispatchQueue.main.async {
+                    self?.coverImageView.image = image
+                }
+            }
+        }.resume()
+    }
+    
+    func updatePlayingState(_ isPlaying: Bool) {
+        // Only update UI elements related to playing state, do NOT reload image
+        nameLabel.textColor = isPlaying ? .systemBlue : .textPrimary
+        coverImageView.tintColor = isPlaying ? .systemBlue : .textSecondary
+        
+        if isPlaying {
+            waveformView.startAnimating()
+        } else {
+            waveformView.stopAnimating()
+        }
     }
 }

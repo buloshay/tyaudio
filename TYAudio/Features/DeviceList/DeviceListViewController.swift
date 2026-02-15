@@ -93,6 +93,7 @@ class DeviceListViewController: BaseViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        hideCustomNavBar()
         setupUI()
         loadDevices()
     }
@@ -117,7 +118,7 @@ class DeviceListViewController: BaseViewController {
             headerView.topAnchor.constraint(equalTo: view.topAnchor),
             headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 120),
+            headerView.heightAnchor.constraint(equalToConstant: 130),
             
             titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 20),
             titleLabel.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -16),
@@ -178,7 +179,7 @@ class DeviceListViewController: BaseViewController {
         print("[User Action] DeviceListViewController - connecting to device: \(device.displayName)")
         
         connectingDevice = device
-        TCPSocketManager.shared.delegate = self
+        TCPSocketManager.shared.addDelegate(self)
         TCPSocketManager.shared.connect(host: device.ipAddress, port: device.port)
         
         // Show loading indicator

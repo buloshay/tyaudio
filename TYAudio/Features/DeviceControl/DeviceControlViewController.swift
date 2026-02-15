@@ -11,19 +11,7 @@ class DeviceControlViewController: BaseViewController {
     
     // MARK: - UI Components
     
-    private lazy var headerView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .cardBackground
-        return view
-    }()
-    
-    private lazy var backButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        button.tintColor = .textPrimary
-        button.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-        return button
-    }()
+
     
     private lazy var deviceIconView: UIImageView = {
         let imageView = UIImageView()
@@ -148,7 +136,7 @@ class DeviceControlViewController: BaseViewController {
         
         var path: String {
             switch self {
-            case .hardDrive: return "/mnt/sda"
+            case .hardDrive: return "/storage/emulated/0"
             case .usb: return "/mnt/usb"
             case .tfCard: return "/mnt/tf"
             }
@@ -183,7 +171,7 @@ class DeviceControlViewController: BaseViewController {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
         // 每次页面出现时重新设置 delegate，防止被其他页面覆盖后丢失
-        TCPSocketManager.shared.delegate = self
+        TCPSocketManager.shared.addDelegate(self)
     }
     
     // MARK: - Setup
@@ -192,25 +180,25 @@ class DeviceControlViewController: BaseViewController {
         view.backgroundColor = .background
         
         // Header
-        view.addSubviewWithAutoLayout(headerView)
-        headerView.addSubviewWithAutoLayout(backButton)
-        headerView.addSubviewWithAutoLayout(deviceIconView)
-        headerView.addSubviewWithAutoLayout(deviceNameLabel)
-        headerView.addSubviewWithAutoLayout(connectionStatusLabel)
+        setupNavBar(title: "")
+        
+        // Custom Nav Content
+        customNavigationBar.addSubview(deviceIconView)
+        deviceIconView.translatesAutoresizingMaskIntoConstraints = false
+        customNavigationBar.addSubview(deviceNameLabel)
+        deviceNameLabel.translatesAutoresizingMaskIntoConstraints = false
+        customNavigationBar.addSubview(connectionStatusLabel)
+        connectionStatusLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        // Adjust height for DeviceControl (Original 140 + 10 = 150)
+        if let heightConstraint = customNavigationBar.constraints.first(where: { $0.firstAttribute == .height }) {
+            heightConstraint.constant = 150
+        }
         
         NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 140),
-            
-            backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 12),
-            backButton.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -20),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
-            backButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            deviceIconView.leadingAnchor.constraint(equalTo: backButton.trailingAnchor, constant: 8),
-            deviceIconView.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
+            // Align with back button in BaseViewController
+            deviceIconView.leadingAnchor.constraint(equalTo: navLeftButton.trailingAnchor, constant: 8),
+            deviceIconView.centerYAnchor.constraint(equalTo: navLeftButton.centerYAnchor),
             deviceIconView.widthAnchor.constraint(equalToConstant: 36),
             deviceIconView.heightAnchor.constraint(equalToConstant: 36),
             
@@ -228,7 +216,7 @@ class DeviceControlViewController: BaseViewController {
         scrollView.addSubviewWithAutoLayout(contentStackView)
         
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            scrollView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -370,13 +358,13 @@ class DeviceControlViewController: BaseViewController {
     
     private func connectToDevice() {
         print("[User Action] DeviceControlViewController - connecting to device: \(device.displayName)")
-        TCPSocketManager.shared.delegate = self
+        TCPSocketManager.shared.addDelegate(self)
         TCPSocketManager.shared.connect(host: device.ipAddress, port: device.port)
     }
     
     // MARK: - Actions
     
-    @objc private func backTapped() {
+    override func navBackTapped() {
         print("[User Action] DeviceControlViewController - backTapped")
         TCPSocketManager.shared.disconnect()
         navigationController?.popViewController(animated: true)
@@ -386,11 +374,11 @@ class DeviceControlViewController: BaseViewController {
         print("[User Action] DeviceControlViewController - handleFeatureAction: \(action)")
         switch action {
         case .storage(let type):
-            let vc = FileBrowserViewController(path: type.path, title: type == .hardDrive ? "硬盘" : type == .usb ? "U盘" : "TF卡", shouldAutoEnterSingleRoot: true)
+            let vc = FileBrowserViewController(path: type.path, title: type == .hardDrive ? "硬盘" : type == .usb ? "U盘" : "TF卡", ipAddress: device.ipAddress, shouldAutoEnterSingleRoot: true)
             navigationController?.pushViewController(vc, animated: true)
             
         case .category(let type):
-            let vc = CategoryViewController(categoryType: type)
+            let vc = CategoryViewController(categoryType: type, ipAddress: device.ipAddress)
             navigationController?.pushViewController(vc, animated: true)
             
         case .favorites:

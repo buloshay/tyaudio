@@ -11,27 +11,7 @@ class PlaylistViewController: BaseViewController {
     
     // MARK: - UI Components
     
-    private lazy var headerView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .cardBackground
-        return view
-    }()
-    
-    private lazy var titleLabel: UILabel = {
-        let label = UILabel()
-        label.text = "播放列表"
-        label.font = .systemFont(ofSize: 18, weight: .bold)
-        label.textColor = .textPrimary
-        return label
-    }()
-    
-    private lazy var closeButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "xmark"), for: .normal)
-        button.tintColor = .textPrimary
-        button.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
-        return button
-    }()
+
     
     private lazy var tableView: UITableView = {
         let table = UITableView(frame: .zero, style: .plain)
@@ -54,14 +34,34 @@ class PlaylistViewController: BaseViewController {
     
     private var songs: [FileItem] = []
     private var currentIndex: Int = 0
+    private var ipAddress: String
+    
+    // MARK: - Initialization
+    
+    init(ipAddress: String) {
+        self.ipAddress = ipAddress
+        super.init(nibName: nil, bundle: nil)
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
     
     // MARK: - Lifecycle
     
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        setupNavBar(title: "播放列表", hideLeftButton: true)
+        
+        // Adjust height for Playlist (Original 60 + 10 = 70)
+        if let heightConstraint = customNavigationBar.constraints.first(where: { $0.firstAttribute == .height }) {
+            heightConstraint.constant = 70
+        }
+        
+        setRightButton(image: UIImage(systemName: "xmark"), action: #selector(closeTapped))
         loadPlaylist()
-        TCPSocketManager.shared.delegate = self
+        TCPSocketManager.shared.addDelegate(self)
     }
     
     // MARK: - Setup
@@ -69,38 +69,18 @@ class PlaylistViewController: BaseViewController {
     private func setupUI() {
         view.backgroundColor = .background
         
-        // Header
-        view.addSubviewWithAutoLayout(headerView)
-        headerView.addSubviewWithAutoLayout(titleLabel)
-        headerView.addSubviewWithAutoLayout(closeButton)
-        
-        NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 60),
-            
-            titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-            
-            closeButton.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16),
-            closeButton.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-            closeButton.widthAnchor.constraint(equalToConstant: 44),
-            closeButton.heightAnchor.constraint(equalToConstant: 44)
-        ])
-        
         // Table View
         view.addSubviewWithAutoLayout(tableView)
         view.addSubviewWithAutoLayout(loadingIndicator)
         
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            tableView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            loadingIndicator.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 40)
+            loadingIndicator.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor, constant: 40)
         ])
     }
     
@@ -139,7 +119,7 @@ extension PlaylistViewController: UITableViewDataSource {
             return UITableViewCell()
         }
         let isPlaying = indexPath.row == currentIndex
-        cell.configure(with: songs[indexPath.row], isPlaying: isPlaying)
+        cell.configure(with: songs[indexPath.row], isPlaying: isPlaying, ipAddress: ipAddress)
         return cell
     }
 }
@@ -224,6 +204,17 @@ class PlaylistItemCell: UITableViewCell {
         return imageView
     }()
     
+    private lazy var coverImageView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFill
+        imageView.backgroundColor = .secondaryBackground
+        imageView.setCornerRadius(6)
+        imageView.clipsToBounds = true
+        imageView.image = UIImage(systemName: "music.note")
+        imageView.tintColor = .textSecondary
+        return imageView
+    }()
+    
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
         super.init(style: style, reuseIdentifier: reuseIdentifier)
         setupUI()
@@ -239,6 +230,7 @@ class PlaylistItemCell: UITableViewCell {
         
         contentView.addSubviewWithAutoLayout(playingIndicator)
         contentView.addSubviewWithAutoLayout(indexLabel)
+        contentView.addSubviewWithAutoLayout(coverImageView)
         contentView.addSubviewWithAutoLayout(nameLabel)
         contentView.addSubviewWithAutoLayout(playingIconView)
         
@@ -252,7 +244,12 @@ class PlaylistItemCell: UITableViewCell {
             indexLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             indexLabel.widthAnchor.constraint(equalToConstant: 30),
             
-            nameLabel.leadingAnchor.constraint(equalTo: indexLabel.trailingAnchor, constant: 8),
+            coverImageView.leadingAnchor.constraint(equalTo: indexLabel.trailingAnchor, constant: 4),
+            coverImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
+            coverImageView.widthAnchor.constraint(equalToConstant: 40),
+            coverImageView.heightAnchor.constraint(equalToConstant: 40),
+            
+            nameLabel.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12),
             nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
             nameLabel.trailingAnchor.constraint(equalTo: playingIconView.leadingAnchor, constant: -8),
             
@@ -263,12 +260,41 @@ class PlaylistItemCell: UITableViewCell {
         ])
     }
     
-    func configure(with item: FileItem, isPlaying: Bool) {
+    func configure(with item: FileItem, isPlaying: Bool, ipAddress: String) {
         nameLabel.text = item.name
         playingIndicator.isHidden = !isPlaying
         playingIconView.isHidden = !isPlaying
         indexLabel.isHidden = isPlaying
         
         nameLabel.textColor = isPlaying ? .playing : .textPrimary
+        
+        // Load cover
+        loadCoverImage(item: item, ipAddress: ipAddress)
+    }
+    
+    private func loadCoverImage(item: FileItem, ipAddress: String) {
+        coverImageView.image = UIImage(systemName: "music.note") // Reset
+        
+        guard item.isSong else { return }
+        
+        var components = URLComponents()
+        components.scheme = "http"
+        components.host = ipAddress
+        components.port = 9012
+        components.path = "/cover"
+        components.queryItems = [
+            URLQueryItem(name: "path", value: item.path),
+            URLQueryItem(name: "default", value: "t_img_album.png")
+        ]
+        
+        guard let url = components.url else { return }
+        
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            if let data = data, let image = UIImage(data: data) {
+                DispatchQueue.main.async {
+                    self?.coverImageView.image = image
+                }
+            }
+        }.resume()
     }
 }

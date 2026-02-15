@@ -11,27 +11,7 @@ class AppListViewController: BaseViewController {
     
     // MARK: - UI Components
     
-    private lazy var headerView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .cardBackground
-        return view
-    }()
-    
-    private lazy var backButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        button.tintColor = .textPrimary
-        button.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-        return button
-    }()
-    
-    private lazy var titleLabel: UILabel = {
-        let label = UILabel()
-        label.text = "应用"
-        label.font = .systemFont(ofSize: 18, weight: .bold)
-        label.textColor = .textPrimary
-        return label
-    }()
+
     
     private lazy var collectionView: UICollectionView = {
         let layout = UICollectionViewFlowLayout()
@@ -66,8 +46,9 @@ class AppListViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        setupNavBar(title: "应用")
         loadApps()
-        TCPSocketManager.shared.delegate = self
+        TCPSocketManager.shared.addDelegate(self)
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -80,32 +61,12 @@ class AppListViewController: BaseViewController {
     private func setupUI() {
         view.backgroundColor = .background
         
-        // Header
-        view.addSubviewWithAutoLayout(headerView)
-        headerView.addSubviewWithAutoLayout(backButton)
-        headerView.addSubviewWithAutoLayout(titleLabel)
-        
-        NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 100),
-            
-            backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 12),
-            backButton.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -12),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
-            backButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            titleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
-            titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor)
-        ])
-        
         // Collection View
         view.addSubviewWithAutoLayout(collectionView)
         view.addSubviewWithAutoLayout(loadingIndicator)
         
         NSLayoutConstraint.activate([
-            collectionView.topAnchor.constraint(equalTo: headerView.bottomAnchor),
+            collectionView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             collectionView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -122,9 +83,7 @@ class AppListViewController: BaseViewController {
     
     // MARK: - Actions
     
-    @objc private func backTapped() {
-        navigationController?.popViewController(animated: true)
-    }
+
     
     /// 点击应用 → 进入 StreamingLaunchViewController 启动APP并开启屏幕镜像
     private func launchApp(_ app: AppItem) {

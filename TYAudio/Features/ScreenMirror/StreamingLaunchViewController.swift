@@ -184,6 +184,7 @@ class StreamingLaunchViewController: BaseViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        hideCustomNavBar()
         // 彻底隐藏导航栏和返回按钮
         navigationItem.hidesBackButton = true
         navigationItem.leftBarButtonItem = nil

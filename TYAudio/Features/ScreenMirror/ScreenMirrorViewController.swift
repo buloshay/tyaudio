@@ -11,28 +11,6 @@ class ScreenMirrorViewController: BaseViewController {
     
     // MARK: - UI Components
     
-    private lazy var headerView: UIView = {
-        let view = UIView()
-        view.backgroundColor = .cardBackground
-        return view
-    }()
-    
-    private lazy var backButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "chevron.left"), for: .normal)
-        button.tintColor = .textPrimary
-        button.addTarget(self, action: #selector(backTapped), for: .touchUpInside)
-        return button
-    }()
-    
-    private lazy var titleLabel: UILabel = {
-        let label = UILabel()
-        label.text = "屏幕互动"
-        label.font = .systemFont(ofSize: 18, weight: .bold)
-        label.textColor = .textPrimary
-        return label
-    }()
-    
     private lazy var statusLabel: UILabel = {
         let label = UILabel()
         label.text = "准备连接..."
@@ -153,6 +131,7 @@ class ScreenMirrorViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
+        setupNavBar(title: "屏幕互动")
         ScreenMirrorService.shared.delegate = self
     }
     
@@ -178,25 +157,7 @@ class ScreenMirrorViewController: BaseViewController {
     private func setupUI() {
         view.backgroundColor = .background
         
-        // Header
-        view.addSubviewWithAutoLayout(headerView)
-        headerView.addSubviewWithAutoLayout(backButton)
-        headerView.addSubviewWithAutoLayout(titleLabel)
-        
-        NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.topAnchor),
-            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            headerView.heightAnchor.constraint(equalToConstant: 100),
-            
-            backButton.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 12),
-            backButton.bottomAnchor.constraint(equalTo: headerView.bottomAnchor, constant: -12),
-            backButton.widthAnchor.constraint(equalToConstant: 44),
-            backButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            titleLabel.centerYAnchor.constraint(equalTo: backButton.centerYAnchor),
-            titleLabel.centerXAnchor.constraint(equalTo: headerView.centerXAnchor)
-        ])
+
         
         // Content
         infoStackView.addArrangedSubview(iconImageView)
@@ -247,7 +208,7 @@ class ScreenMirrorViewController: BaseViewController {
     
     // MARK: - Actions
     
-    @objc private func backTapped() {
+    override func navBackTapped() {
         ScreenMirrorService.shared.disconnect()
         navigationController?.popViewController(animated: true)
     }
@@ -278,7 +239,7 @@ class ScreenMirrorViewController: BaseViewController {
         statusLabel.text = "正在连接..."
         
         // 向设备请求远程控制会话信息
-        TCPSocketManager.shared.delegate = self
+        TCPSocketManager.shared.addDelegate(self)
         TCPSocketManager.shared.send(command: CommandBuilder.getScreenMirrorSession())
     }
     

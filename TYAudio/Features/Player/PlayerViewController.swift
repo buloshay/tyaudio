@@ -164,7 +164,7 @@ class PlayerViewController: BaseViewController {
         setupUI()
         updateUI()
         startProgressTimer()
-        TCPSocketManager.shared.delegate = self
+        TCPSocketManager.shared.addDelegate(self)
     }
     
     override func viewWillDisappear(_ animated: Bool) {
@@ -359,7 +359,7 @@ class PlayerViewController: BaseViewController {
     
     @objc private func playlistTapped() {
         print("[User Action] PlayerViewController - playlistTapped")
-        let playlistVC = PlaylistViewController()
+        let playlistVC = PlaylistViewController(ipAddress: ipAddress)
         playlistVC.modalPresentationStyle = .pageSheet
         if let sheet = playlistVC.sheetPresentationController {
             sheet.detents = [.medium(), .large()]

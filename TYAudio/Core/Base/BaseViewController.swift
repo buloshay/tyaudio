@@ -9,6 +9,39 @@ import UIKit
 
 class BaseViewController: UIViewController {
 
+    // MARK: - Custom Navigation Bar
+    
+    lazy var customNavigationBar: UIView = {
+        let view = UIView()
+        view.backgroundColor = .cardBackground
+        return view
+    }()
+    
+    lazy var navTitleLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 18, weight: .bold)
+        label.textColor = .textPrimary
+        label.textAlignment = .center
+        return label
+    }()
+    
+    lazy var navLeftButton: UIButton = {
+        let button = UIButton(type: .system)
+        // Default back button
+        let config = UIImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        button.setImage(UIImage(systemName: "chevron.left", withConfiguration: config), for: .normal)
+        button.tintColor = .textPrimary
+        button.addTarget(self, action: #selector(navBackTapped), for: .touchUpInside)
+        return button
+    }()
+    
+    lazy var navRightButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.tintColor = .textPrimary
+        button.isHidden = true
+        return button
+    }()
+    
     // MARK: - Loading UI
     
     private var loadingOverlayView: UIView?
@@ -17,31 +50,104 @@ class BaseViewController: UIViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
-        print("[Page] \(String(describing: type(of: self))) - viewDidLoad")
+        setupCustomNavigationBar()
+//        print("[Page] \(String(describing: type(of: self))) - viewDidLoad")
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        print("[Page] \(String(describing: type(of: self))) - viewWillAppear")
+        // Ensure nav bar is on top
+        view.bringSubviewToFront(customNavigationBar)
+//        print("[Page] \(String(describing: type(of: self))) - viewWillAppear")
+    }
+    
+    // MARK: - Navigation Bar Setup
+    
+    /// 初始化自定义导航栏
+    private func setupCustomNavigationBar() {
+        view.addSubview(customNavigationBar)
+        customNavigationBar.translatesAutoresizingMaskIntoConstraints = false
+        
+        customNavigationBar.addSubview(navTitleLabel)
+        navTitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        
+        customNavigationBar.addSubview(navLeftButton)
+        navLeftButton.translatesAutoresizingMaskIntoConstraints = false
+        
+        customNavigationBar.addSubview(navRightButton)
+        navRightButton.translatesAutoresizingMaskIntoConstraints = false
+        
+        // 增加 10pt 高度 (100 -> 110)
+        NSLayoutConstraint.activate([
+            customNavigationBar.topAnchor.constraint(equalTo: view.topAnchor),
+            customNavigationBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            customNavigationBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            customNavigationBar.heightAnchor.constraint(equalToConstant: 110),
+            
+            // 内容位置保持靠下，高度增加自然实现了整体下移 10pt 的效果
+            navLeftButton.leadingAnchor.constraint(equalTo: customNavigationBar.leadingAnchor, constant: 12),
+            navLeftButton.bottomAnchor.constraint(equalTo: customNavigationBar.bottomAnchor, constant: -12),
+            navLeftButton.widthAnchor.constraint(equalToConstant: 44),
+            navLeftButton.heightAnchor.constraint(equalToConstant: 44),
+            
+            navTitleLabel.centerXAnchor.constraint(equalTo: customNavigationBar.centerXAnchor),
+            navTitleLabel.centerYAnchor.constraint(equalTo: navLeftButton.centerYAnchor),
+            
+            navRightButton.trailingAnchor.constraint(equalTo: customNavigationBar.trailingAnchor, constant: -12),
+            navRightButton.centerYAnchor.constraint(equalTo: navLeftButton.centerYAnchor),
+            navRightButton.widthAnchor.constraint(equalToConstant: 44),
+            navRightButton.heightAnchor.constraint(equalToConstant: 44)
+        ])
+    }
+    
+    /// 配置导航栏
+    /// - Parameter title: 标题
+    /// - Parameter hideLeftButton: 是否隐藏左侧按钮（默认 false）
+    func setupNavBar(title: String, hideLeftButton: Bool = false) {
+        navTitleLabel.text = title
+        navLeftButton.isHidden = hideLeftButton
+        customNavigationBar.isHidden = false
+    }
+    
+    /// 设置右侧按钮
+    /// - Parameters:
+    ///   - image: 图标
+    ///   - action: 点击事件
+    func setRightButton(image: UIImage?, action: Selector?) {
+        navRightButton.setImage(image, for: .normal)
+        navRightButton.isHidden = false
+        if let action = action {
+            navRightButton.removeTarget(nil, action: nil, for: .allEvents)
+            navRightButton.addTarget(self, action: action, for: .touchUpInside)
+        }
+    }
+    
+    /// 隐藏所有自定义导航栏（全屏页面用）
+    func hideCustomNavBar() {
+        customNavigationBar.isHidden = true
+    }
+    
+    @objc func navBackTapped() {
+        navigationController?.popViewController(animated: true)
     }
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        print("[Page] \(String(describing: type(of: self))) - viewDidAppear")
+//        print("[Page] \(String(describing: type(of: self))) - viewDidAppear")
     }
 
     override func viewWillDisappear(_ animated: Bool) {
         super.viewWillDisappear(animated)
-        print("[Page] \(String(describing: type(of: self))) - viewWillDisappear")
+//        print("[Page] \(String(describing: type(of: self))) - viewWillDisappear")
     }
 
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
-        print("[Page] \(String(describing: type(of: self))) - viewDidDisappear")
+//        print("[Page] \(String(describing: type(of: self))) - viewDidDisappear")
     }
     
     deinit {
-        print("[Page] \(String(describing: type(of: self))) - deinit")
+//        print("[Page] \(String(describing: type(of: self))) - deinit")
     }
     
     // MARK: - Public Loading Methods
@@ -80,6 +186,8 @@ class BaseViewController: UIViewController {
         overlay.addSubview(spinner)
         overlay.addSubview(label)
         view.addSubview(overlay)
+        
+        // 确保 Loading 在最上层
         view.bringSubviewToFront(overlay)
         
         // 5. 布局
