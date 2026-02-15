@@ -126,8 +126,10 @@ class AppListViewController: BaseViewController {
         navigationController?.popViewController(animated: true)
     }
     
+    /// 点击应用 → 进入 StreamingLaunchViewController 启动APP并开启屏幕镜像
     private func launchApp(_ app: AppItem) {
-        TCPSocketManager.shared.send(command: CommandBuilder.launchApp(package: app.packageName))
+        let vc = StreamingLaunchViewController(mode: .app(app))
+        navigationController?.pushViewController(vc, animated: true)
     }
 }
 
@@ -164,13 +166,31 @@ extension AppListViewController: TCPSocketManagerDelegate {
     func tcpSocketManager(_ manager: TCPSocketManager, didChangeState state: TCPConnectionState) {}
     
     func tcpSocketManager(_ manager: TCPSocketManager, didReceiveData data: [String: Any], command: String) {
-        if command == "app" {
-            loadingIndicator.stopAnimating()
-            
-            if let list = data["list"] as? [[String: Any]] {
-                apps = AppItem.fromArray(jsonArray: list)
-                collectionView.reloadData()
+        switch command {
+        case "app":
+            // 如果当前 nav 栈顶是 StreamingLaunchViewController，转发给它处理
+            if let launchVC = navigationController?.viewControllers.last as? StreamingLaunchViewController {
+                launchVC.handleTCPData(data, command: command)
+                return
             }
+            
+            // 否则是应用列表响应（action == "list"）
+            if (data["action"] as? String) == "list" {
+                loadingIndicator.stopAnimating()
+                if let list = data["list"] as? [[String: Any]] {
+                    apps = AppItem.fromArray(jsonArray: list)
+                    collectionView.reloadData()
+                }
+            }
+            
+        case "get_session", "screen_mirror_session":
+            // 转发给 StreamingLaunchViewController
+            if let launchVC = navigationController?.viewControllers.last as? StreamingLaunchViewController {
+                launchVC.handleTCPData(data, command: command)
+            }
+            
+        default:
+            break
         }
     }
     
@@ -185,10 +205,35 @@ class AppCell: UICollectionViewCell {
     
     static let reuseIdentifier = "AppCell"
     
+    /// 已知应用包名关键词 → Assets 图标名称映射
+    private static let iconMapping: [(keyword: String, assetName: String)] = [
+        ("kugou", "app_kugou"),
+        ("apple.android.music", "app_apple_music"),
+        ("qqmusic", "app_qq_music"),
+        ("filemanager", "app_file_manager"),
+        ("ximalaya", "app_ximalaya"),
+        ("spotify", "app_spotify"),
+        ("netease.cloudmusic", "app_netease_music"),
+        ("dangbei", "app_dangbei"),
+        ("cd", "app_cd")
+    ]
+    
+    /// 根据包名查找对应的 Asset 图标名称
+    private static func appIconName(for packageName: String) -> String? {
+        let lower = packageName.lowercased()
+        for mapping in iconMapping {
+            if lower.contains(mapping.keyword) {
+                return mapping.assetName
+            }
+        }
+        return nil
+    }
+    
     private lazy var iconView: UIView = {
         let view = UIView()
         view.backgroundColor = .cardBackground
         view.setCornerRadius(16)
+        view.clipsToBounds = true
         return view
     }()
     
@@ -196,7 +241,8 @@ class AppCell: UICollectionViewCell {
         let imageView = UIImageView()
         imageView.image = UIImage(systemName: "app.fill")
         imageView.tintColor = .accent
-        imageView.contentMode = .scaleAspectFit
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
         return imageView
     }()
     
@@ -229,10 +275,10 @@ class AppCell: UICollectionViewCell {
             iconView.widthAnchor.constraint(equalTo: contentView.widthAnchor),
             iconView.heightAnchor.constraint(equalTo: iconView.widthAnchor),
             
-            iconImageView.centerXAnchor.constraint(equalTo: iconView.centerXAnchor),
-            iconImageView.centerYAnchor.constraint(equalTo: iconView.centerYAnchor),
-            iconImageView.widthAnchor.constraint(equalToConstant: 32),
-            iconImageView.heightAnchor.constraint(equalToConstant: 32),
+            iconImageView.topAnchor.constraint(equalTo: iconView.topAnchor),
+            iconImageView.leadingAnchor.constraint(equalTo: iconView.leadingAnchor),
+            iconImageView.trailingAnchor.constraint(equalTo: iconView.trailingAnchor),
+            iconImageView.bottomAnchor.constraint(equalTo: iconView.bottomAnchor),
             
             nameLabel.topAnchor.constraint(equalTo: iconView.bottomAnchor, constant: 8),
             nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
@@ -242,5 +288,20 @@ class AppCell: UICollectionViewCell {
     
     func configure(with app: AppItem) {
         nameLabel.text = app.title
+        
+        // 尝试匹配已知应用图标
+        if let assetName = AppCell.appIconName(for: app.packageName),
+           let image = UIImage(named: assetName) {
+            iconImageView.image = image
+            iconImageView.contentMode = .scaleAspectFill
+            iconImageView.tintColor = nil
+            iconView.backgroundColor = .clear
+        } else {
+            // 未匹配到：使用默认 SF Symbol 图标
+            iconImageView.image = UIImage(systemName: "app.fill")
+            iconImageView.contentMode = .scaleAspectFit
+            iconImageView.tintColor = .accent
+            iconView.backgroundColor = .cardBackground
+        }
     }
 }

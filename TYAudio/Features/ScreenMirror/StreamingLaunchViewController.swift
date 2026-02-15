@@ -15,9 +15,10 @@
 
 import UIKit
 
-/// 启动模式：描述四种不同入口的流程差异
+/// 启动模式：描述不同入口的流程差异
 enum LaunchMode {
     case streaming(StreamingType)  // 流媒体：启动APP → get_session → 连接
+    case app(AppItem)              // 应用：启动APP → get_session → 连接（同流媒体流程）
     case nas                       // NAS：get_session → 等2秒 → launchNAS → 连接
     case settings                  // 设置：get_session → 等2秒 → launchSettings → 连接
     case screenMirror              // 屏幕互动：get_session → 直接连接
@@ -25,6 +26,7 @@ enum LaunchMode {
     var displayName: String {
         switch self {
         case .streaming(let type): return type.rawValue.uppercased()
+        case .app(let appItem): return appItem.title
         case .nas: return "NAS"
         case .settings: return "设置"
         case .screenMirror: return "屏幕互动"
@@ -59,6 +61,25 @@ class StreamingLaunchViewController: BaseViewController {
     
     private var errorLabel: UILabel?
     private var errorButton: UIButton?
+    private var retryButton: UIButton?
+    
+    /// 响应超时计时器（15秒）
+    private var responseTimeoutTimer: Timer?
+    /// 当前重试次数
+    private var retryCount: Int = 0
+    /// 最大重试次数
+    private let maxRetryCount: Int = 1
+    
+    /// SDK 连接超时计时器（6秒）
+    private var sdkConnectionTimer: Timer?
+    /// SDK 连接重试次数
+    private var sdkRetryCount: Int = 0
+    /// 最大 SDK 重试次数
+    private let maxSdkRetryCount: Int = 3
+    /// 缓存最近的 session 信息，重试时使用
+    private var lastSessionInfo: SessionInfo?
+    /// 是否已经显示了提前退出按钮
+    private var earlyCloseButtonShown = false
     
     // MARK: - 远程桌面 UI（旋转方式实现横屏）
     
@@ -152,6 +173,8 @@ class StreamingLaunchViewController: BaseViewController {
     }
     
     deinit {
+        cancelResponseTimeout()
+        cancelSdkConnectionTimeout()
         if ScreenMirrorService.shared.delegate === self {
             ScreenMirrorService.shared.delegate = nil
         }
@@ -262,8 +285,22 @@ class StreamingLaunchViewController: BaseViewController {
             // 流媒体：先启动 APP，等待 ack 后再请求 session
             launchState = .waitingAppAck
             showLoading(message: "正在启动 \(type.rawValue.uppercased())...")
-            TCPSocketManager.shared.send(command: CommandBuilder.launchStreaming(type)) { [weak self] error in
+            startResponseTimeout()
+            TCPSocketManager.shared.sendWithTimeout(command: CommandBuilder.launchStreaming(type)) { [weak self] error in
                 guard let self = self, let error = error else { return }
+                // 发送超时或失败，取消响应计时器（避免双重错误提示）
+                self.cancelResponseTimeout()
+                self.showError("发送启动指令失败：\(error.localizedDescription)")
+            }
+            
+        case .app(let appItem):
+            // 应用：先启动 APP，等待 ack 后再请求 session（与流媒体流程相同）
+            launchState = .waitingAppAck
+            showLoading(message: "正在启动 \(appItem.title)...")
+            startResponseTimeout()
+            TCPSocketManager.shared.sendWithTimeout(command: CommandBuilder.launchApp(package: appItem.packageName)) { [weak self] error in
+                guard let self = self, let error = error else { return }
+                self.cancelResponseTimeout()
                 self.showError("发送启动指令失败：\(error.localizedDescription)")
             }
             
@@ -271,8 +308,10 @@ class StreamingLaunchViewController: BaseViewController {
             // NAS：直接请求 session
             launchState = .waitingSession
             showLoading(message: "正在连接 NAS...")
-            TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
+            startResponseTimeout()
+            TCPSocketManager.shared.sendWithTimeout(command: CommandBuilder.getSession()) { [weak self] error in
                 guard let self = self, let error = error else { return }
+                self.cancelResponseTimeout()
                 self.showError("请求会话失败：\(error.localizedDescription)")
             }
             
@@ -280,8 +319,10 @@ class StreamingLaunchViewController: BaseViewController {
             // 设置：直接请求 session
             launchState = .waitingSession
             showLoading(message: "正在连接设置...")
-            TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
+            startResponseTimeout()
+            TCPSocketManager.shared.sendWithTimeout(command: CommandBuilder.getSession()) { [weak self] error in
                 guard let self = self, let error = error else { return }
+                self.cancelResponseTimeout()
                 self.showError("请求会话失败：\(error.localizedDescription)")
             }
             
@@ -289,8 +330,10 @@ class StreamingLaunchViewController: BaseViewController {
             // 屏幕互动：直接请求 session
             launchState = .waitingSession
             showLoading(message: "正在连接屏幕互动...")
-            TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
+            startResponseTimeout()
+            TCPSocketManager.shared.sendWithTimeout(command: CommandBuilder.getSession()) { [weak self] error in
                 guard let self = self, let error = error else { return }
+                self.cancelResponseTimeout()
                 self.showError("请求会话失败：\(error.localizedDescription)")
             }
         }
@@ -314,25 +357,43 @@ class StreamingLaunchViewController: BaseViewController {
     /// 处理 app/start 回包（仅流媒体模式使用）
     private func handleAppStartResponse(_ data: [String: Any]) {
         guard launchState == .waitingAppAck else { return }
+        
+        // 收到响应，取消超时计时
+        cancelResponseTimeout()
+        
         guard (data["action"] as? String) == "start" else { return }
         
-        // 仅流媒体模式需要检查 package
-        guard case .streaming(let type) = launchMode else { return }
+        // 根据模式检查 package
+        let expectedPackage: String
+        let displayName: String
+        
+        switch launchMode {
+        case .streaming(let type):
+            expectedPackage = type.rawValue
+            displayName = type.rawValue.uppercased()
+        case .app(let appItem):
+            expectedPackage = appItem.packageName
+            displayName = appItem.title
+        default:
+            return
+        }
         
         let package = (data["package"] as? String)?.lowercased()
-        guard package == type.rawValue else { return }
+        guard package == expectedPackage.lowercased() else { return }
         
         let resultCode = parseResultCode(from: data["result"]) ?? -1
         guard resultCode == 0 else {
-            showError("\(type.rawValue.uppercased()) 启动失败，返回码：\(resultCode)")
+            showError("\(displayName) 启动失败，返回码：\(resultCode)")
             return
         }
         
         // 收到启动成功，直接请求 session（无延时）
         launchState = .waitingSession
         showLoading(message: "正在获取会话...")
-        TCPSocketManager.shared.send(command: CommandBuilder.getSession()) { [weak self] error in
+        startResponseTimeout()
+        TCPSocketManager.shared.sendWithTimeout(command: CommandBuilder.getSession()) { [weak self] error in
             guard let self = self, let error = error else { return }
+            self.cancelResponseTimeout()
             self.showError("请求会话失败：\(error.localizedDescription)")
         }
     }
@@ -340,6 +401,10 @@ class StreamingLaunchViewController: BaseViewController {
     /// 处理 get_session 回包
     private func handleSessionResponse(_ data: [String: Any]) {
         guard launchState == .waitingSession else { return }
+        
+        // 收到响应，取消超时计时
+        cancelResponseTimeout()
+        
         guard let sessionInfo = parseSessionInfo(from: data) else {
             showError("会话信息格式无效")
             return
@@ -362,8 +427,8 @@ class StreamingLaunchViewController: BaseViewController {
                 TCPSocketManager.shared.send(command: CommandBuilder.launchSettings())
             }
             
-        case .streaming, .screenMirror:
-            // 流媒体 / 屏幕互动：收到 session 后直接连接
+        case .streaming, .app, .screenMirror:
+            // 流媒体 / 应用 / 屏幕互动：收到 session 后直接连接
             connectSunflower(with: sessionInfo)
         }
     }
@@ -371,7 +436,16 @@ class StreamingLaunchViewController: BaseViewController {
     /// 连接向日葵远程桌面
     private func connectSunflower(with sessionInfo: SessionInfo) {
         launchState = .connecting
-        showLoading(message: "正在连接远程桌面...")
+        lastSessionInfo = sessionInfo
+        
+        let retryHint = sdkRetryCount > 0 ? "（第 \(sdkRetryCount) 次重连）" : ""
+        showLoading(message: "正在连接远程桌面...\(retryHint)")
+        
+        // 提前显示关闭按钮，允许用户在连接阶段退出
+        setupEarlyCloseButton()
+        
+        // 启动 SDK 连接超时检测（6秒）
+        startSdkConnectionTimeout()
         
         // 创建配置，隐藏向日葵默认 UI
         let config = SCCDesktopConfig()
@@ -387,16 +461,57 @@ class StreamingLaunchViewController: BaseViewController {
         ) { [weak self] viewController in
             guard let self = self else { return }
             guard let remoteVC = viewController else {
+                self.cancelSdkConnectionTimeout()
                 self.showError("无法创建远程桌面")
                 return
             }
             guard !self.remoteViewEmbedded else { return }
             self.remoteViewEmbedded = true
             self.launchState = .connected
+            self.cancelSdkConnectionTimeout()
+            self.sdkRetryCount = 0
             
             // 直接在本页面内嵌远程桌面（旋转方式横屏）
             self.embedRemoteDesktop(remoteVC)
         }
+    }
+    
+    /// 在 loading 阶段提前显示关闭按钮，方便用户退出
+    private func setupEarlyCloseButton() {
+        guard !earlyCloseButtonShown else { return }
+        earlyCloseButtonShown = true
+        
+        // 添加底部控制栏（仅含关闭按钮）
+        view.addSubviewWithAutoLayout(bottomControlBar)
+        
+        // 只放一个关闭按钮
+        let earlyCloseStack = UIStackView()
+        earlyCloseStack.axis = .horizontal
+        earlyCloseStack.distribution = .fillEqually
+        earlyCloseStack.spacing = 0
+        earlyCloseStack.addArrangedSubview(closeButton)
+        bottomControlBar.addSubviewWithAutoLayout(earlyCloseStack)
+        
+        let separator = UIView()
+        separator.backgroundColor = UIColor(white: 0.3, alpha: 1.0)
+        bottomControlBar.addSubviewWithAutoLayout(separator)
+        
+        NSLayoutConstraint.activate([
+            bottomControlBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            bottomControlBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            bottomControlBar.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            
+            earlyCloseStack.topAnchor.constraint(equalTo: bottomControlBar.topAnchor),
+            earlyCloseStack.leadingAnchor.constraint(equalTo: bottomControlBar.leadingAnchor),
+            earlyCloseStack.trailingAnchor.constraint(equalTo: bottomControlBar.trailingAnchor),
+            earlyCloseStack.bottomAnchor.constraint(equalTo: bottomControlBar.safeAreaLayoutGuide.bottomAnchor),
+            earlyCloseStack.heightAnchor.constraint(equalToConstant: 60),
+            
+            separator.topAnchor.constraint(equalTo: bottomControlBar.topAnchor),
+            separator.leadingAnchor.constraint(equalTo: bottomControlBar.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: bottomControlBar.trailingAnchor),
+            separator.heightAnchor.constraint(equalToConstant: 0.5)
+        ])
     }
     
     // MARK: - 内嵌远程桌面（旋转方式横屏）
@@ -458,12 +573,12 @@ class StreamingLaunchViewController: BaseViewController {
     private func showError(_ message: String) {
         launchState = .idle
         hideLoading(animated: true)
+        cancelResponseTimeout()
         
-        // 如果已显示错误页，仅更新文字
-        if let label = errorLabel {
-            label.text = message
-            return
-        }
+        // 清理旧视图
+        errorLabel?.removeFromSuperview()
+        errorButton?.removeFromSuperview()
+        retryButton?.removeFromSuperview()
         
         // 显示错误信息
         let label = UILabel()
@@ -473,38 +588,159 @@ class StreamingLaunchViewController: BaseViewController {
         label.textAlignment = .center
         label.numberOfLines = 0
         
-        let button = UIButton(type: .system)
-        button.setTitle("返回", for: .normal)
-        button.setTitleColor(.white, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        button.backgroundColor = .accent
-        button.setCornerRadius(12)
-        button.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
+        // 返回按钮
+        let backBtn = UIButton(type: .system)
+        backBtn.setTitle("返回", for: .normal)
+        backBtn.setTitleColor(.white, for: .normal)
+        backBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        backBtn.backgroundColor = .systemGray
+        backBtn.setCornerRadius(12)
+        backBtn.addTarget(self, action: #selector(closeTapped), for: .touchUpInside)
         
         view.addSubviewWithAutoLayout(label)
-        view.addSubviewWithAutoLayout(button)
+        view.addSubviewWithAutoLayout(backBtn)
         
+        // 布局 Label
         NSLayoutConstraint.activate([
             label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            label.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -40),
+            label.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -60),
             label.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 30),
-            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -30),
-            
-            button.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            button.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 30),
-            button.widthAnchor.constraint(equalToConstant: 120),
-            button.heightAnchor.constraint(equalToConstant: 44)
+            label.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -30)
         ])
         
+        // 检查是否可以重试
+        if retryCount < maxRetryCount {
+            print("[StreamingLaunch] Showing retry button (retryCount: \(retryCount))")
+            
+            let retryBtn = UIButton(type: .system)
+            retryBtn.setTitle("重试", for: .normal)
+            retryBtn.setTitleColor(.white, for: .normal)
+            retryBtn.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+            retryBtn.backgroundColor = .accent
+            retryBtn.setCornerRadius(12)
+            retryBtn.addTarget(self, action: #selector(retryTapped), for: .touchUpInside)
+            
+            view.addSubviewWithAutoLayout(retryBtn)
+            
+            NSLayoutConstraint.activate([
+                retryBtn.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                retryBtn.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 30),
+                retryBtn.widthAnchor.constraint(equalToConstant: 120),
+                retryBtn.heightAnchor.constraint(equalToConstant: 44),
+                
+                backBtn.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                backBtn.topAnchor.constraint(equalTo: retryBtn.bottomAnchor, constant: 16),
+                backBtn.widthAnchor.constraint(equalToConstant: 120),
+                backBtn.heightAnchor.constraint(equalToConstant: 44)
+            ])
+            
+            self.retryButton = retryBtn
+        } else {
+            // 超过重试次数，只显示返回
+            NSLayoutConstraint.activate([
+                backBtn.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+                backBtn.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 30),
+                backBtn.widthAnchor.constraint(equalToConstant: 120),
+                backBtn.heightAnchor.constraint(equalToConstant: 44)
+            ])
+        }
+        
         self.errorLabel = label
-        self.errorButton = button
+        self.errorButton = backBtn
     }
     
     // MARK: - Actions
     
+    /// 重试按钮点击
+    @objc private func retryTapped() {
+        print("[User Action] StreamingLaunch - retryTapped")
+        retryCount += 1
+        
+        // 清理错误 UI
+        errorLabel?.removeFromSuperview()
+        errorButton?.removeFromSuperview()
+        retryButton?.removeFromSuperview()
+        errorLabel = nil
+        errorButton = nil
+        retryButton = nil
+        
+        // 重新开始启动流程
+        startLaunch()
+    }
+    
+    /// 开启响应超时
+    private func startResponseTimeout() {
+        cancelResponseTimeout()
+        print("[StreamingLaunch] Starting 15s response timeout")
+        responseTimeoutTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: false) { [weak self] _ in
+            self?.handleResponseTimeout()
+        }
+    }
+
+    /// 取消响应超时
+    private func cancelResponseTimeout() {
+        if responseTimeoutTimer != nil {
+             print("[StreamingLaunch] Cancelling response timeout")
+             responseTimeoutTimer?.invalidate()
+             responseTimeoutTimer = nil
+        }
+    }
+
+    /// 响应超时处理
+    private func handleResponseTimeout() {
+        print("[StreamingLaunch] Response timeout triggered")
+        showError("连接超时，设备没有响应")
+    }
+    
+    // MARK: - SDK Connection Timeout
+    
+    /// 开启 SDK 连接超时检测（6秒）
+    private func startSdkConnectionTimeout() {
+        cancelSdkConnectionTimeout()
+        print("[StreamingLaunch] Starting 6s SDK connection timeout (retry \(sdkRetryCount)/\(maxSdkRetryCount))")
+        sdkConnectionTimer = Timer.scheduledTimer(withTimeInterval: 6.0, repeats: false) { [weak self] _ in
+            self?.handleSdkConnectionTimeout()
+        }
+    }
+    
+    /// 取消 SDK 连接超时
+    private func cancelSdkConnectionTimeout() {
+        if sdkConnectionTimer != nil {
+            print("[StreamingLaunch] Cancelling SDK connection timeout")
+            sdkConnectionTimer?.invalidate()
+            sdkConnectionTimer = nil
+        }
+    }
+    
+    /// SDK 连接超时处理：断开当前连接，重新请求 session 并重连
+    private func handleSdkConnectionTimeout() {
+        print("[StreamingLaunch] SDK connection timeout triggered (retry \(sdkRetryCount)/\(maxSdkRetryCount))")
+        
+        // 断开当前连接
+        ScreenMirrorService.shared.disconnect()
+        
+        guard sdkRetryCount < maxSdkRetryCount else {
+            showError("远程桌面连接超时，请检查网络或设备状态")
+            return
+        }
+        
+        sdkRetryCount += 1
+        showLoading(message: "连接超时，正在第 \(sdkRetryCount) 次重连...")
+        
+        // 重新请求 session
+        launchState = .waitingSession
+        startResponseTimeout()
+        TCPSocketManager.shared.sendWithTimeout(command: CommandBuilder.getSession()) { [weak self] error in
+            guard let self = self, let error = error else { return }
+            self.cancelResponseTimeout()
+            self.showError("重新请求会话失败：\(error.localizedDescription)")
+        }
+    }
+    
     /// loading 阶段关闭按钮
     @objc private func closeTapped() {
         print("[User Action] StreamingLaunch - closeTapped")
+        cancelSdkConnectionTimeout()
         ScreenMirrorService.shared.disconnect()
         navigationController?.popViewController(animated: true)
     }
@@ -521,19 +757,26 @@ class StreamingLaunchViewController: BaseViewController {
         ScreenMirrorService.shared.androidClickMenu()
     }
     
-    /// 结束远程桌面 — 确认后断开连接并 pop
+    /// 结束远程桌面 — 已连接时确认后断开，连接中时直接退出
     @objc private func remoteCloseTapped() {
         print("[User Action] StreamingLaunch - remoteCloseTapped")
-        let alert = UIAlertController(
-            title: "结束远程桌面",
-            message: "确定要结束远程桌面操控吗？",
-            preferredStyle: .alert
-        )
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "确定", style: .destructive) { [weak self] _ in
-            self?.disconnectAndPop()
-        })
-        present(alert, animated: true)
+        if launchState == .connected {
+            let alert = UIAlertController(
+                title: "结束远程桌面",
+                message: "确定要结束远程桌面操控吗？",
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+            alert.addAction(UIAlertAction(title: "确定", style: .destructive) { [weak self] _ in
+                self?.disconnectAndPop()
+            })
+            present(alert, animated: true)
+        } else {
+            // 连接中直接退出，不需要确认
+            cancelSdkConnectionTimeout()
+            ScreenMirrorService.shared.disconnect()
+            navigationController?.popViewController(animated: true)
+        }
     }
     
     /// 断开向日葵连接，移除子 VC，pop 回上一页
@@ -541,6 +784,7 @@ class StreamingLaunchViewController: BaseViewController {
         // 防止重复调用
         guard launchState != .idle else { return }
         launchState = .idle
+        cancelSdkConnectionTimeout()
         
         ScreenMirrorService.shared.disconnect()
         
@@ -613,13 +857,17 @@ extension StreamingLaunchViewController: ScreenMirrorServiceDelegate {
         switch state {
         case .connected:
             print("[StreamingLaunch] mirror connected")
+            cancelSdkConnectionTimeout()
         case .failed(let error):
             print("[StreamingLaunch] mirror failed: \(error)")
+            cancelSdkConnectionTimeout()
             if launchState == .connecting {
                 showError("向日葵连接失败：\(error)")
             }
         case .disconnected:
             print("[StreamingLaunch] mirror disconnected")
+            // 如果 SDK 超时重试中主动断开的，不要显示错误
+            if sdkConnectionTimer != nil { break }
             if launchState == .connecting {
                 showError("向日葵连接断开")
             } else if launchState == .connected {
@@ -633,6 +881,8 @@ extension StreamingLaunchViewController: ScreenMirrorServiceDelegate {
     
     func screenMirrorServiceDidDesktopAppear(_ service: ScreenMirrorService) {
         print("[StreamingLaunch] desktop appeared, hiding remote loading")
+        cancelSdkConnectionTimeout()
+        sdkRetryCount = 0
         hideLoading()
     }
 }

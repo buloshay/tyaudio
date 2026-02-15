@@ -61,7 +61,9 @@ struct PlayState {
             URLQueryItem(name: "default", value: "t_img_album.png")
         ]
         
-        return components.url
+        let url = components.url
+        print("[PlayState] Generated cover URL: \(url?.absoluteString ?? "nil") for path: \(filePath)")
+        return url
     }
     
     private func formatTime(_ seconds: Int) -> String {

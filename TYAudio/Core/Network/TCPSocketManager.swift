@@ -258,6 +258,39 @@ class TCPSocketManager {
     private func sendPong() {
         send(command: ["command": "pong"])
     }
+    /// 发送JSON指令（带超时）
+    /// - Parameters:
+    ///   - command: 指令字典
+    ///   - timeout: 超时时间（秒），默认 6 秒
+    func sendWithTimeout(command: [String: Any], timeout: TimeInterval = 6.0, completion: ((Error?) -> Void)? = nil) {
+        // 创建超时计时器
+        var isCompleted = false
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + timeout)
+        
+        // 超时处理
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            if !isCompleted {
+                isCompleted = true
+                timer.cancel()
+                print("[TCP] Send timeout for command: \(command)")
+                DispatchQueue.main.async {
+                    completion?(TCPError.sendTimeout)
+                }
+            }
+        }
+        timer.resume()
+        
+        // 发送数据
+        send(command: command) { error in
+            if !isCompleted {
+                isCompleted = true
+                timer.cancel()
+                completion?(error)
+            }
+        }
+    }
 }
 
 // MARK: - Errors
@@ -266,6 +299,7 @@ enum TCPError: LocalizedError {
     case notConnected
     case invalidData
     case connectionFailed
+    case sendTimeout
     
     var errorDescription: String? {
         switch self {
@@ -275,6 +309,8 @@ enum TCPError: LocalizedError {
             return "无效的数据格式"
         case .connectionFailed:
             return "连接失败"
+        case .sendTimeout:
+            return "发送指令超时"
         }
     }
 }

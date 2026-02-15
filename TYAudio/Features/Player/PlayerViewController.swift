@@ -313,11 +313,20 @@ class PlayerViewController: BaseViewController {
     }
     
     private func loadCoverImage(from url: URL) {
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        print("[PlayerViewController] Loading cover from: \(url.absoluteString)")
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            if let error = error {
+                print("[PlayerViewController] Load cover failed: \(error.localizedDescription)")
+                return
+            }
+            
             if let data = data, let image = UIImage(data: data) {
+                print("[PlayerViewController] Load cover success")
                 DispatchQueue.main.async {
                     self?.coverImageView.image = image
                 }
+            } else {
+                 print("[PlayerViewController] Load cover failed: Invalid data or image")
             }
         }.resume()
     }

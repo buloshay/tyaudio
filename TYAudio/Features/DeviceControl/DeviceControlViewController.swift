@@ -182,6 +182,8 @@ class DeviceControlViewController: BaseViewController {
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
         navigationController?.setNavigationBarHidden(true, animated: animated)
+        // 每次页面出现时重新设置 delegate，防止被其他页面覆盖后丢失
+        TCPSocketManager.shared.delegate = self
     }
     
     // MARK: - Setup
