@@ -161,6 +161,7 @@ class PlayerViewController: BaseViewController {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+        hideCustomNavBar() // 隐藏 BaseViewController 的默认导航栏，使用自定义按钮
         setupUI()
         updateUI()
         startProgressTimer()

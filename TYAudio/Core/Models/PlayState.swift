@@ -62,7 +62,6 @@ struct PlayState {
         ]
         
         let url = components.url
-        print("[PlayState] Generated cover URL: \(url?.absoluteString ?? "nil") for path: \(filePath)")
         return url
     }
     

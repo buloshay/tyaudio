@@ -168,7 +168,6 @@ class MiniPlayerView: UIView {
     }
     
     private func loadCoverImage(from url: URL) {
-        print("[MiniPlayerView] Loading cover from: \(url.absoluteString)")
         URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
             if let error = error {
                 print("[MiniPlayerView] Load cover failed: \(error.localizedDescription)")

@@ -76,13 +76,25 @@ struct CommandBuilder {
     // MARK: - 分类模块
     
     /// 获取分类列表（单曲、专辑、歌手、风格）
-    static func category(type: CategoryType, name: String = "", count: Int = -1, updateList: Bool = true) -> [String: Any] {
+    /// - Parameters:
+    ///   - type: 分类类型 (music/album/artist/style)
+    ///   - name: 分类名称，获取顶层列表时为空，获取子项时为对应name
+    ///   - count: -1=首次加载，0=已有缓存仅通知设备当前界面
+    ///   - updateList: 是否更新列表，默认 music/album/style=true, artist=false
+    static func category(type: CategoryType, name: String = "", count: Int = -1, updateList: Bool? = nil) -> [String: Any] {
+        // update_list 默认值：music=true, album=true, artist=false, style=true
+        let shouldUpdateList: Bool
+        if let updateList = updateList {
+            shouldUpdateList = updateList
+        } else {
+            shouldUpdateList = (type != .artist)
+        }
         return [
             "command": "category",
             "type": type.rawValue,
             "name": name,
             "name_only": false,
-            "update_list": updateList,
+            "update_list": shouldUpdateList,
             "count": count,
             "check_exist": true
         ]

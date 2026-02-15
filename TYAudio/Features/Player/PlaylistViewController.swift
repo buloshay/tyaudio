@@ -62,6 +62,9 @@ class PlaylistViewController: BaseViewController {
         setRightButton(image: UIImage(systemName: "xmark"), action: #selector(closeTapped))
         loadPlaylist()
         TCPSocketManager.shared.addDelegate(self)
+        
+        // 确保导航栏在最上层，防止被 tableView 遮挡
+        view.bringSubviewToFront(customNavigationBar)
     }
     
     // MARK: - Setup
@@ -88,9 +91,7 @@ class PlaylistViewController: BaseViewController {
         loadingIndicator.startAnimating()
         
         // 先切换到根目录，再获取当前播放列表
-        TCPSocketManager.shared.send(command: CommandBuilder.changePath(dir: "/")) { [weak self] _ in
-            TCPSocketManager.shared.send(command: CommandBuilder.getCurrentPlaylist())
-        }
+        TCPSocketManager.shared.send(command: CommandBuilder.getCurrentPlaylist())
     }
     
     // MARK: - Actions

@@ -61,8 +61,6 @@ class CategoryViewController: BaseViewController {
         updateTitle()
         loadCategory()
         TCPSocketManager.shared.addDelegate(self)
-        // 获取当前播放状态
-        TCPSocketManager.shared.send(command: CommandBuilder.getPlayState())
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -108,7 +106,9 @@ class CategoryViewController: BaseViewController {
         items = []
         tableView.reloadData()
         
-        let command = CommandBuilder.category(type: categoryType, name: selectedCategoryName ?? "")
+        // 始终使用 count=-1 获取完整数据（count=0 仅通知设备不返回数据）
+        let command = CommandBuilder.category(type: categoryType, name: selectedCategoryName ?? "", count: -1,updateList: true)
+        print("[Category] 发送指令: type=\(categoryType.rawValue), name=\(selectedCategoryName ?? "")")
         TCPSocketManager.shared.send(command: command)
         
         // 如果是歌曲列表，重新获取播放状态以更新高亮
@@ -120,8 +120,8 @@ class CategoryViewController: BaseViewController {
     // MARK: - Actions
     
     override func navBackTapped() {
-        if isShowingSongs {
-            // 返回分类列表
+        if isShowingSongs && categoryType != .music && selectedCategoryName != nil {
+            // 从子分类歌曲列表返回到分类列表（仅专辑、歌手、风格有二级结构）
             isShowingSongs = false
             selectedCategoryName = nil
             updateTitle()
@@ -229,14 +229,23 @@ extension CategoryViewController: TCPSocketManagerDelegate {
         if command == "category" {
             loadingIndicator.stopAnimating()
             
+            let resultCount = data["result"] as? Int ?? 0
+            print("[Category] 收到响应: result=\(resultCount)")
+            
             if let list = data["list"] as? [[String: Any]] {
-                // 判断返回的是分类还是歌曲
-                if isShowingSongs || categoryType == .music {
+                // 根据 list 项的 type 字段判断：1=歌曲，0=分类
+                let isSongList = list.first.flatMap { $0["type"] as? Int } == 1
+                
+                if isSongList || categoryType == .music {
+                    isShowingSongs = true
                     items = FileItem.fromArray(jsonArray: list)
                 } else {
+                    isShowingSongs = (selectedCategoryName != nil)
                     items = list.compactMap { CategoryItem.from(json: $0, type: categoryType) }
                 }
+                
                 tableView.reloadData()
+                print("[Category] 解析完成: \(items.count)条, isSongList=\(isSongList)")
             }
         } else if command == "play_state" {
             currentPlayState = PlayState.from(json: data)
@@ -320,6 +329,11 @@ class CategoryItemCell: UITableViewCell {
         fatalError("init(coder:) has not been implemented")
     }
     
+    /// nameLabel 左侧约束：跟随 coverImageView（歌曲模式）
+    private var nameLabelToCoverConstraint: NSLayoutConstraint!
+    /// nameLabel 左侧约束：跟随 iconImageView（分类模式）
+    private var nameLabelToIconConstraint: NSLayoutConstraint!
+    
     private func setupUI() {
         backgroundColor = .clear
         selectionStyle = .none
@@ -331,6 +345,10 @@ class CategoryItemCell: UITableViewCell {
         containerView.addSubviewWithAutoLayout(nameLabel)
         containerView.addSubviewWithAutoLayout(countLabel)
         containerView.addSubviewWithAutoLayout(arrowImageView)
+        
+        // 创建两个互斥的 nameLabel leading 约束
+        nameLabelToCoverConstraint = nameLabel.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12)
+        nameLabelToIconConstraint = nameLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 12)
         
         NSLayoutConstraint.activate([
             containerView.topAnchor.constraint(equalTo: contentView.topAnchor, constant: 4),
@@ -353,7 +371,8 @@ class CategoryItemCell: UITableViewCell {
             waveformView.widthAnchor.constraint(equalToConstant: 20),
             waveformView.heightAnchor.constraint(equalToConstant: 16),
             
-            nameLabel.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12),
+            // 默认使用 cover 约束（歌曲模式）
+            nameLabelToCoverConstraint,
             nameLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
             nameLabel.trailingAnchor.constraint(equalTo: waveformView.leadingAnchor, constant: -8),
             
@@ -423,14 +442,9 @@ class CategoryItemCell: UITableViewCell {
     }
     
     private func updateConstraintsForSong(_ isSong: Bool) {
-        // Simple way to adjust layout: hide/show views is handled in configure
-        // nameLabel leading constraint adjustment could be done here if needed
-        // For now, we use a shared layout where inactive image views are hidden
-        if isSong {
-             nameLabel.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12).isActive = true
-        } else {
-             nameLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 12).isActive = true
-        }
+        // 切换 nameLabel 的 leading 约束，避免重复添加
+        nameLabelToCoverConstraint.isActive = isSong
+        nameLabelToIconConstraint.isActive = !isSong
     }
     
     private func loadImage(from url: URL) {
