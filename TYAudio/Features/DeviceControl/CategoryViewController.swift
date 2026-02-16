@@ -38,7 +38,7 @@ class CategoryViewController: BaseViewController {
     private var items: [Any] = []  // 可以是 CategoryItem 或 FileItem
     private var isShowingSongs = false
     private var selectedCategoryName: String?
-    private var currentPlayState: PlayState?
+    private var playStateObserver: NSObjectProtocol?
     
     // MARK: - Initialization
     
@@ -61,6 +61,22 @@ class CategoryViewController: BaseViewController {
         updateTitle()
         loadCategory()
         TCPSocketManager.shared.addDelegate(self)
+        
+        // 监听全局播放状态变化
+        playStateObserver = NotificationCenter.default.addObserver(
+            forName: PlayStateManager.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            self.updatePlayingState()
+        }
+    }
+    
+    deinit {
+        if let observer = playStateObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -111,10 +127,8 @@ class CategoryViewController: BaseViewController {
         print("[Category] 发送指令: type=\(categoryType.rawValue), name=\(selectedCategoryName ?? "")")
         TCPSocketManager.shared.send(command: command)
         
-        // 如果是歌曲列表，重新获取播放状态以更新高亮
-        if isShowingSongs || categoryType == .music {
-            TCPSocketManager.shared.send(command: CommandBuilder.getPlayState())
-        }
+        // 获取播放状态以更新高亮（歌曲列表和分类列表都需要）
+        TCPSocketManager.shared.send(command: CommandBuilder.getPlayState())
     }
     
     // MARK: - Actions
@@ -141,34 +155,33 @@ class CategoryViewController: BaseViewController {
     private func playSong(at index: Int) {
         TCPSocketManager.shared.send(command: CommandBuilder.playAt(index: index))
         
-        // Optimistically update state
-        if currentPlayState == nil {
-            currentPlayState = PlayState()
-        }
-        currentPlayState?.currentIndex = index
-        currentPlayState?.status = 1 // Playing
-        
-        // Find the song title to match logic in cellForRowAt
+        // 乐观更新到全局单例
         if let fileItem = items[index] as? FileItem {
-            currentPlayState?.title = fileItem.name
-            currentPlayState?.filePath = fileItem.path
+            PlayStateManager.shared.updateOptimistically(
+                index: index,
+                title: fileItem.name,
+                filePath: fileItem.path
+            )
         }
-        
-        updatePlayingState()
     }
     
     private func updatePlayingState() {
-        guard let current = currentPlayState else { return }
-        
-        // Iterate visible cells to update state without reloading table
         for cell in tableView.visibleCells {
-            if let indexPath = tableView.indexPath(for: cell),
-               let fileItem = items[indexPath.row] as? FileItem,
-               let categoryCell = cell as? CategoryItemCell {
-                
-                let isPlaying = fileItem.name == current.title
-                categoryCell.updatePlayingState(isPlaying)
+            guard let indexPath = tableView.indexPath(for: cell),
+                  let categoryCell = cell as? CategoryItemCell else { continue }
+            
+            let item = items[indexPath.row]
+            let isPlaying: Bool
+            if let fileItem = item as? FileItem {
+                // 歌曲：用标题匹配
+                isPlaying = PlayStateManager.shared.isSongPlaying(title: fileItem.name)
+            } else if let categoryItem = item as? CategoryItem {
+                // 分类项（专辑/歌手/风格）
+                isPlaying = PlayStateManager.shared.isCategoryPlaying(name: categoryItem.name, categoryType: categoryType)
+            } else {
+                isPlaying = false
             }
+            categoryCell.updatePlayingState(isPlaying)
         }
     }
 }
@@ -188,10 +201,11 @@ extension CategoryViewController: UITableViewDataSource {
         
         let item = items[indexPath.row]
         if let categoryItem = item as? CategoryItem {
-            cell.configure(with: categoryItem)
+            let isPlaying = PlayStateManager.shared.isCategoryPlaying(name: categoryItem.name, categoryType: categoryType)
+            cell.configure(with: categoryItem, isPlaying: isPlaying)
         } else if let fileItem = item as? FileItem {
             // 检查是否是当前播放的歌曲
-            let isPlaying = isShowingSongs && fileItem.name == currentPlayState?.title
+            let isPlaying = PlayStateManager.shared.isSongPlaying(title: fileItem.name)
             cell.configure(with: fileItem, isPlaying: isPlaying, ipAddress: ipAddress)
         }
         
@@ -248,11 +262,8 @@ extension CategoryViewController: TCPSocketManagerDelegate {
                 print("[Category] 解析完成: \(items.count)条, isSongList=\(isSongList)")
             }
         } else if command == "play_state" {
-            currentPlayState = PlayState.from(json: data)
-            // 只有在显示歌曲列表时才刷新，避免不必要的UI更新
-            if isShowingSongs || categoryType == .music {
-                updatePlayingState()
-            }
+            // 更新全局单例（通知会自动触发 updatePlayingState）
+            PlayStateManager.shared.update(from: data)
         }
     }
     
@@ -366,7 +377,7 @@ class CategoryItemCell: UITableViewCell {
             coverImageView.widthAnchor.constraint(equalToConstant: 40),
             coverImageView.heightAnchor.constraint(equalToConstant: 40),
             
-            waveformView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
+            waveformView.trailingAnchor.constraint(equalTo: countLabel.leadingAnchor, constant: -8),
             waveformView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
             waveformView.widthAnchor.constraint(equalToConstant: 20),
             waveformView.heightAnchor.constraint(equalToConstant: 16),
@@ -386,14 +397,20 @@ class CategoryItemCell: UITableViewCell {
         ])
     }
     
-    func configure(with item: CategoryItem) {
-        nameLabel.text = item.name
-        nameLabel.textColor = .textPrimary
+    func configure(with item: CategoryItem, isPlaying: Bool = false) {
+        // 专辑 name 可能含 ~!@#$% 分隔符，只显示分隔符前的部分
+        let separator = "~!@#$%"
+        if let range = item.name.range(of: separator) {
+            nameLabel.text = String(item.name[..<range.lowerBound])
+        } else {
+            nameLabel.text = item.name
+        }
+        
+        nameLabel.textColor = isPlaying ? .systemBlue : .textPrimary
         countLabel.text = item.itemCount > 0 ? "\(item.itemCount)首" : ""
         arrowImageView.isHidden = false
         iconImageView.isHidden = false
         coverImageView.isHidden = true
-        waveformView.stopAnimating()
         
         switch item.type {
         case .album:
@@ -404,6 +421,13 @@ class CategoryItemCell: UITableViewCell {
             iconImageView.image = UIImage(systemName: "guitars.fill")
         case .music:
             iconImageView.image = UIImage(systemName: "music.note")
+        }
+        iconImageView.tintColor = isPlaying ? .systemBlue : .accent
+        
+        if isPlaying {
+            waveformView.startAnimating()
+        } else {
+            waveformView.stopAnimating()
         }
         
         // Reset constraints for non-song items
@@ -461,6 +485,7 @@ class CategoryItemCell: UITableViewCell {
         // Only update UI elements related to playing state, do NOT reload image
         nameLabel.textColor = isPlaying ? .systemBlue : .textPrimary
         coverImageView.tintColor = isPlaying ? .systemBlue : .textSecondary
+        iconImageView.tintColor = isPlaying ? .systemBlue : .accent
         
         if isPlaying {
             waveformView.startAnimating()

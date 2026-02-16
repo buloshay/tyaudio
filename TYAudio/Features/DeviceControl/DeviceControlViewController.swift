@@ -83,7 +83,7 @@ class DeviceControlViewController: BaseViewController {
             case .storage:
                 return [
                     FeatureItem(icon: "externaldrive.fill", title: "硬盘", action: .storage(.hardDrive)),
-                    FeatureItem(icon: "usb.fill", title: "U盘", action: .storage(.usb)),
+                    FeatureItem(icon: "icon_usb", title: "U盘", action: .storage(.usb), isCustomIcon: true),
                     FeatureItem(icon: "sdcard.fill", title: "TF卡", action: .storage(.tfCard))
                 ]
             case .category:
@@ -104,7 +104,7 @@ class DeviceControlViewController: BaseViewController {
             case .other:
                 return [
                     FeatureItem(icon: "server.rack", title: "NAS", action: .nas),
-                    FeatureItem(icon: "rectangles.group", title: "屏幕互动", action: .screenMirror),
+                    FeatureItem(icon: "icon_screen_mirror", title: "屏幕互动", action: .screenMirror, isCustomIcon: true),
                     FeatureItem(icon: "gearshape.fill", title: "设置", action: .settings),
                     FeatureItem(icon: "app.fill", title: "应用", action: .apps)
                 ]
@@ -116,6 +116,7 @@ class DeviceControlViewController: BaseViewController {
         let icon: String
         let title: String
         let action: FeatureAction
+        var isCustomIcon: Bool = false
     }
     
     private enum FeatureAction {
@@ -322,7 +323,11 @@ class DeviceControlViewController: BaseViewController {
         button.setCornerRadius(12)
         
         let iconView = UIImageView()
-        iconView.image = UIImage(systemName: item.icon)
+        if item.isCustomIcon {
+            iconView.image = UIImage(named: item.icon)?.withRenderingMode(.alwaysTemplate)
+        } else {
+            iconView.image = UIImage(systemName: item.icon)
+        }
         iconView.tintColor = .accent
         iconView.contentMode = .scaleAspectFit
         
@@ -382,7 +387,7 @@ class DeviceControlViewController: BaseViewController {
             navigationController?.pushViewController(vc, animated: true)
             
         case .favorites:
-            let vc = FileBrowserViewController(path: "/", title: "收藏", isFavorites: true)
+            let vc = FileBrowserViewController(path: "/", title: "收藏", isFavorites: true, ipAddress: device.ipAddress)
             navigationController?.pushViewController(vc, animated: true)
             
         case .streaming(let type):
@@ -451,6 +456,7 @@ extension DeviceControlViewController: TCPSocketManagerDelegate {
         switch command {
         case "play_state":
             let state = PlayState.from(json: data)
+            PlayStateManager.shared.update(from: data)
             updateMiniPlayer(with: state)
             
         case "app", "get_session", "screen_mirror_session":

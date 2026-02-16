@@ -242,7 +242,7 @@ class TCPSocketManager {
             }
             
             if let data = content {
-                print("[TCP] Received Hex: \(data.map { String(format: "%02hhx", $0) }.joined())")
+//                print("[TCP] Received Hex: \(data.map { String(format: "%02hhx", $0) }.joined())")
                 self.parseReceivedData(data)
             }
             

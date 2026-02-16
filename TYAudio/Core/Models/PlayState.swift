@@ -27,6 +27,15 @@ struct PlayState {
         return status == 1
     }
     
+    /// 从 album 字段提取播放目录路径
+    /// album 格式: "专辑名~!@#$%/storage/emulated/0/Music/..."
+    var albumPath: String? {
+        let separator = "~!@#$%"
+        guard let range = album.range(of: separator) else { return nil }
+        let path = String(album[range.upperBound...])
+        return path.isEmpty ? nil : path
+    }
+    
     /// 格式化的当前时间
     var formattedProgress: String {
         return formatTime(progress)

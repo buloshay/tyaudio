@@ -20,6 +20,7 @@ class FileBrowserViewController: BaseViewController {
         table.delegate = self
         table.dataSource = self
         table.register(FileCell.self, forCellReuseIdentifier: FileCell.reuseIdentifier)
+        table.register(CategoryItemCell.self, forCellReuseIdentifier: CategoryItemCell.reuseIdentifier)
         table.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 100, right: 0)
         return table
     }()
@@ -53,8 +54,8 @@ class FileBrowserViewController: BaseViewController {
     /// 标记是否正在等待 change_path 响应
     private var isWaitingForChangePath: Bool = false
     
-    // Add playState to track current playing song
-    private var currentPlayState: PlayState?
+    /// 播放状态通知观察者
+    private var playStateObserver: NSObjectProtocol?
     
     // MARK: - Initialization
     
@@ -78,7 +79,23 @@ class FileBrowserViewController: BaseViewController {
         setupUI()
         setupNavBar(title: pageTitle)
         TCPSocketManager.shared.addDelegate(self)
+        
+        // 监听全局播放状态变化（其他页面触发的播放）
+        playStateObserver = NotificationCenter.default.addObserver(
+            forName: PlayStateManager.didUpdateNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.updatePlayingState()
+        }
+        
         loadFiles()
+    }
+    
+    deinit {
+        if let observer = playStateObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
     }
     
     override func viewWillAppear(_ animated: Bool) {
@@ -156,6 +173,38 @@ class FileBrowserViewController: BaseViewController {
     
     private func playSong(at index: Int) {
         TCPSocketManager.shared.send(command: CommandBuilder.playAt(index: index))
+        
+        // 乐观更新到全局单例
+        if index < files.count {
+            let fileItem = files[index]
+            PlayStateManager.shared.updateOptimistically(
+                index: index,
+                title: fileItem.name,
+                filePath: fileItem.path
+            )
+        }
+    }
+    
+    /// 逐 cell 更新播放状态，避免 reloadData 导致的闪烁
+    private func updatePlayingState() {
+        for cell in tableView.visibleCells {
+            if let indexPath = tableView.indexPath(for: cell),
+               indexPath.row < files.count {
+                let fileItem = files[indexPath.row]
+                let isPlaying: Bool
+                if fileItem.isSong {
+                    isPlaying = PlayStateManager.shared.isSongPlaying(title: fileItem.name, filePath: fileItem.path)
+                } else {
+                    isPlaying = PlayStateManager.shared.isPathPlaying(fileItem.path)
+                }
+                
+                if let categoryCell = cell as? CategoryItemCell {
+                    categoryCell.updatePlayingState(isPlaying)
+                } else if let fileCell = cell as? FileCell {
+                    fileCell.updatePlayingState(isPlaying)
+                }
+            }
+        }
     }
 }
 
@@ -168,13 +217,26 @@ extension FileBrowserViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: FileCell.reuseIdentifier, for: indexPath) as? FileCell else {
-            return UITableViewCell()
-        }
         let item = files[indexPath.row]
-        let isPlaying = item.isSong && item.name == currentPlayState?.title
-        cell.configure(with: item, isPlaying: isPlaying, ipAddress: ipAddress)
-        return cell
+        
+        // Use CategoryItemCell if it's a song OR if we are in Favorites (assuming favorites are songs or should be displayed as such)
+        if item.isSong || isFavorites {
+            // 歌曲文件使用 CategoryItemCell（带封面、波形动画）
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: CategoryItemCell.reuseIdentifier, for: indexPath) as? CategoryItemCell else {
+                return UITableViewCell()
+            }
+            let isPlaying = PlayStateManager.shared.isSongPlaying(title: item.name, filePath: item.path)
+            cell.configure(with: item, isPlaying: isPlaying, ipAddress: ipAddress)
+            return cell
+        } else {
+            // 文件夹使用 FileCell
+            guard let cell = tableView.dequeueReusableCell(withIdentifier: FileCell.reuseIdentifier, for: indexPath) as? FileCell else {
+                return UITableViewCell()
+            }
+            let isPlaying = PlayStateManager.shared.isPathPlaying(item.path)
+            cell.configure(with: item, isPlaying: isPlaying)
+            return cell
+        }
     }
 }
 
@@ -244,16 +306,9 @@ extension FileBrowserViewController: TCPSocketManagerDelegate {
                     return cur == r
                 }
                 
-                if isRootPath {
+                if isRootPath && shouldAutoEnterSingleRoot {
                     if files.count == 1, let firstItem = files.first, firstItem.isDirectory {
-                        // 只有一个挂载点，自动进入
-                        // 注意：这里 directly 调用 enterDirectory 会 push stack，用户想必希望能够 back 回来么？
-                        // 通常"初始化进入"意味着用户点进来不仅看到sda，而是直接看到sda1的内容。
-                        // 如果用户点 back，应该退回到上一级界面（设备列表），而不是退回到 sda（空壳）。
-                        // 但为了稳妥，且遵循 "先获取根其根目录下挂载... 直接展示... 初始化进入时候还需要进入"，
-                        // 这里我们使用 enterDirectory，这样用户按 back 会回到这个根列表。
-                        // 如果想跳过，需要修改 navigationStack。
-                        // 鉴于用户描述“如果超过一个节点... 如果只有一个节点...”，保留层级比较符合直觉。
+                        shouldAutoEnterSingleRoot = false
                         enterDirectory(firstItem)
                         return
                     }
@@ -271,9 +326,8 @@ extension FileBrowserViewController: TCPSocketManagerDelegate {
                 emptyLabel.isHidden = false
             }
         } else if command == "play_state" {
-            currentPlayState = PlayState.from(json: data)
-            // Refresh to update highlights
-            tableView.reloadData()
+            // 更新全局单例（通知会自动触发 updatePlayingState）
+            PlayStateManager.shared.update(from: data)
         }
     }
     
@@ -285,7 +339,7 @@ extension FileBrowserViewController: TCPSocketManagerDelegate {
     }
 }
 
-// MARK: - File Cell
+// MARK: - File Cell (仅用于文件夹显示)
 
 class FileCell: UITableViewCell {
     
@@ -313,28 +367,18 @@ class FileCell: UITableViewCell {
         return label
     }()
     
+    private lazy var waveformView: WaveformView = {
+        let view = WaveformView()
+        view.isHidden = true
+        return view
+    }()
+    
     private lazy var arrowImageView: UIImageView = {
         let imageView = UIImageView()
         imageView.image = UIImage(systemName: "chevron.right")
         imageView.tintColor = .textSecondary
         imageView.contentMode = .scaleAspectFit
         return imageView
-    }()
-    
-    private lazy var coverImageView: UIImageView = {
-        let imageView = UIImageView()
-        imageView.contentMode = .scaleAspectFill
-        imageView.clipsToBounds = true
-        imageView.layer.cornerRadius = 4
-        imageView.backgroundColor = .secondaryBackground
-        imageView.isHidden = true
-        return imageView
-    }()
-    
-    private lazy var waveformView: WaveformView = {
-        let view = WaveformView()
-        view.isHidden = true
-        return view
     }()
     
     override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
@@ -352,9 +396,8 @@ class FileCell: UITableViewCell {
         
         contentView.addSubviewWithAutoLayout(containerView)
         containerView.addSubviewWithAutoLayout(iconImageView)
-        containerView.addSubviewWithAutoLayout(coverImageView)
-        containerView.addSubviewWithAutoLayout(waveformView)
         containerView.addSubviewWithAutoLayout(nameLabel)
+        containerView.addSubviewWithAutoLayout(waveformView)
         containerView.addSubviewWithAutoLayout(arrowImageView)
         
         NSLayoutConstraint.activate([
@@ -368,19 +411,14 @@ class FileCell: UITableViewCell {
             iconImageView.widthAnchor.constraint(equalToConstant: 28),
             iconImageView.heightAnchor.constraint(equalToConstant: 28),
             
-            coverImageView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor, constant: 12),
-            coverImageView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            coverImageView.widthAnchor.constraint(equalToConstant: 40),
-            coverImageView.heightAnchor.constraint(equalToConstant: 40),
-            
-            waveformView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
-            waveformView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            waveformView.widthAnchor.constraint(equalToConstant: 20),
-            waveformView.heightAnchor.constraint(equalToConstant: 16),
-            
             nameLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 12),
             nameLabel.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
             nameLabel.trailingAnchor.constraint(equalTo: waveformView.leadingAnchor, constant: -8),
+            
+            waveformView.trailingAnchor.constraint(equalTo: arrowImageView.leadingAnchor, constant: -8),
+            waveformView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
+            waveformView.widthAnchor.constraint(equalToConstant: 20),
+            waveformView.heightAnchor.constraint(equalToConstant: 16),
             
             arrowImageView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -12),
             arrowImageView.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
@@ -389,53 +427,21 @@ class FileCell: UITableViewCell {
         ])
     }
     
-    func configure(with item: FileItem, isPlaying: Bool = false, ipAddress: String? = nil) {
+    func configure(with item: FileItem, isPlaying: Bool = false) {
         nameLabel.text = item.name
-        nameLabel.textColor = isPlaying ? .accent : .textPrimary
-        
-        if item.isDirectory {
-            iconImageView.image = UIImage(systemName: "folder.fill")
-            iconImageView.isHidden = false
-            coverImageView.isHidden = true
-            arrowImageView.isHidden = false
-            waveformView.stopAnimating()
-            
-            nameLabel.leadingAnchor.constraint(equalTo: iconImageView.trailingAnchor, constant: 12).isActive = true
-        } else {
-            // init state
-            iconImageView.isHidden = true
-            coverImageView.isHidden = false
-            arrowImageView.isHidden = true
-            
-            if isPlaying {
-                waveformView.startAnimating()
-            } else {
-                waveformView.stopAnimating()
-            }
-            
-            nameLabel.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12).isActive = true
-            
-            // Load cover
-            coverImageView.image = UIImage(systemName: "music.note")
-            coverImageView.tintColor = isPlaying ? .accent : .textSecondary
-            
-            // Only load cover if it's a song (type 1) and we have an IP
-            if item.type == .song, let ip = ipAddress {
-                let urlStr = "http://\(ip):9012/cover?path=\(item.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? "")&default=t_img_album.png"
-                if let url = URL(string: urlStr) {
-                   loadImage(from: url)
-                }
-            }
-        }
+        iconImageView.image = UIImage(systemName: "folder.fill")
+        arrowImageView.isHidden = false
+        updatePlayingState(isPlaying)
     }
     
-    private func loadImage(from url: URL) {
-        URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-            if let data = data, let image = UIImage(data: data) {
-                DispatchQueue.main.async {
-                    self?.coverImageView.image = image
-                }
-            }
-        }.resume()
+    func updatePlayingState(_ isPlaying: Bool) {
+        nameLabel.textColor = isPlaying ? .systemBlue : .textPrimary
+        iconImageView.tintColor = isPlaying ? .systemBlue : .accent
+        
+        if isPlaying {
+            waveformView.startAnimating()
+        } else {
+            waveformView.stopAnimating()
+        }
     }
 }

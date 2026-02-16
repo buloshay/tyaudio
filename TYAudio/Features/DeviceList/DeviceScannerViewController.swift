@@ -482,18 +482,37 @@ class DeviceScannerViewController: BaseViewController {
         // Stop scanning
         stopQRScanning()
         
+        print("Scanned QR Code: \(code)")
+        
         // Try to parse the QR code
         var ipAddress: String?
         var model: String?
+        let port = 8001
         
-        // Try JSON format first: {"ip":"192.168.x.x","model":"xxx"}
-        if let data = code.data(using: .utf8),
+        // 1. Try "Model; IP" format (e.g. "TY-i60; 192.168.1.3")
+        if code.contains(";") {
+            let components = code.components(separatedBy: ";")
+            if components.count >= 2 {
+                let p1 = components[0].trimmingCharacters(in: .whitespacesAndNewlines)
+                let p2 = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
+                
+                // Check if the second part is an IP
+                let ipComponents = p2.components(separatedBy: ".")
+                if ipComponents.count == 4, ipComponents.allSatisfy({ Int($0) != nil && Int($0)! >= 0 && Int($0)! <= 255 }) {
+                    model = p1
+                    ipAddress = p2
+                }
+            }
+        }
+        
+        // 2. Try JSON format: {"ip":"192.168.x.x","model":"xxx"}
+        if ipAddress == nil, let data = code.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
             ipAddress = json["ip"] as? String
             model = json["model"] as? String
         }
         
-        // If not JSON, treat as plain IP address
+        // 3. Try plain IP address
         if ipAddress == nil {
             // Validate IP format
             let components = code.components(separatedBy: ".")
@@ -503,7 +522,7 @@ class DeviceScannerViewController: BaseViewController {
         }
         
         guard let ip = ipAddress else {
-            showAlert(title: "无效二维码", message: "未能识别设备信息，请确认二维码正确")
+            showAlert(title: "无效二维码", message: "未能识别设备信息: \(code)\n请确认二维码正确")
             // Resume scanning after alert dismissed
             DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
                 self?.startQRScanning()
@@ -512,9 +531,9 @@ class DeviceScannerViewController: BaseViewController {
         }
         
         // Create device and add
-        var device = Device(ipAddress: ip)
+        var device = Device(ipAddress: ip, port: UInt16(port))
         if let m = model {
-            device = Device(ipAddress: ip, port: 8001, model: m)
+            device = Device(ipAddress: ip, port: UInt16(port), model: m)
         }
         
         addDevice(device)

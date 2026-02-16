@@ -22,6 +22,7 @@ class BaseViewController: UIViewController {
         label.font = .systemFont(ofSize: 18, weight: .bold)
         label.textColor = .textPrimary
         label.textAlignment = .center
+        label.lineBreakMode = .byTruncatingTail
         return label
     }()
     
@@ -92,6 +93,8 @@ class BaseViewController: UIViewController {
             
             navTitleLabel.centerXAnchor.constraint(equalTo: customNavigationBar.centerXAnchor),
             navTitleLabel.centerYAnchor.constraint(equalTo: navLeftButton.centerYAnchor),
+            navTitleLabel.leadingAnchor.constraint(greaterThanOrEqualTo: navLeftButton.trailingAnchor, constant: 8),
+            navTitleLabel.trailingAnchor.constraint(lessThanOrEqualTo: navRightButton.leadingAnchor, constant: -8),
             
             navRightButton.trailingAnchor.constraint(equalTo: customNavigationBar.trailingAnchor, constant: -12),
             navRightButton.centerYAnchor.constraint(equalTo: navLeftButton.centerYAnchor),

@@ -431,6 +431,7 @@ extension PlayerViewController: TCPSocketManagerDelegate {
     func tcpSocketManager(_ manager: TCPSocketManager, didReceiveData data: [String: Any], command: String) {
         if command == "play_state" {
             playState = PlayState.from(json: data)
+            PlayStateManager.shared.update(from: data)
             updateUI()
         }
     }

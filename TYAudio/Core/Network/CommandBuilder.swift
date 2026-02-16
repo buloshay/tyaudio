@@ -137,7 +137,7 @@ struct CommandBuilder {
     static func playAt(index: Int) -> [String: Any] {
         return [
             "command": "play",
-            "current": true,
+            "current": false,
             "index": index
         ]
     }

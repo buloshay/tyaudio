@@ -19,7 +19,8 @@ class PlaylistViewController: BaseViewController {
         table.separatorStyle = .none
         table.delegate = self
         table.dataSource = self
-        table.register(PlaylistItemCell.self, forCellReuseIdentifier: PlaylistItemCell.reuseIdentifier)
+        table.register(CategoryItemCell.self, forCellReuseIdentifier: CategoryItemCell.reuseIdentifier)
+        table.contentInset = UIEdgeInsets(top: 8, left: 0, bottom: 100, right: 0)
         return table
     }()
     
@@ -33,7 +34,7 @@ class PlaylistViewController: BaseViewController {
     // MARK: - Properties
     
     private var songs: [FileItem] = []
-    private var currentIndex: Int = 0
+    private var currentPlayState: PlayState?
     private var ipAddress: String
     
     // MARK: - Initialization
@@ -90,8 +91,9 @@ class PlaylistViewController: BaseViewController {
     private func loadPlaylist() {
         loadingIndicator.startAnimating()
         
-        // 先切换到根目录，再获取当前播放列表
+        // 获取当前播放列表 + 播放状态（解决首次打开 index=0 的问题）
         TCPSocketManager.shared.send(command: CommandBuilder.getCurrentPlaylist())
+        TCPSocketManager.shared.send(command: CommandBuilder.getPlayState())
     }
     
     // MARK: - Actions
@@ -102,8 +104,35 @@ class PlaylistViewController: BaseViewController {
     
     private func playSong(at index: Int) {
         TCPSocketManager.shared.send(command: CommandBuilder.playAt(index: index))
-        currentIndex = index
-        tableView.reloadData()
+        
+        // Optimistically update state
+        if currentPlayState == nil {
+            currentPlayState = PlayState()
+        }
+        currentPlayState?.currentIndex = index
+        currentPlayState?.status = 1 // Playing
+        
+        if index < songs.count, let fileItem = songs[index] as FileItem? {
+            currentPlayState?.title = fileItem.name
+            currentPlayState?.filePath = fileItem.path
+        }
+        
+        updatePlayingState()
+    }
+    
+    /// 逐 cell 更新播放状态，避免 reloadData 导致的闪烁
+    private func updatePlayingState() {
+        guard let current = currentPlayState else { return }
+        
+        for cell in tableView.visibleCells {
+            if let indexPath = tableView.indexPath(for: cell),
+               let categoryCell = cell as? CategoryItemCell,
+               indexPath.row < songs.count {
+                let fileItem = songs[indexPath.row]
+                let isPlaying = fileItem.name == current.title
+                categoryCell.updatePlayingState(isPlaying)
+            }
+        }
     }
 }
 
@@ -116,11 +145,12 @@ extension PlaylistViewController: UITableViewDataSource {
     }
     
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        guard let cell = tableView.dequeueReusableCell(withIdentifier: PlaylistItemCell.reuseIdentifier, for: indexPath) as? PlaylistItemCell else {
+        guard let cell = tableView.dequeueReusableCell(withIdentifier: CategoryItemCell.reuseIdentifier, for: indexPath) as? CategoryItemCell else {
             return UITableViewCell()
         }
-        let isPlaying = indexPath.row == currentIndex
-        cell.configure(with: songs[indexPath.row], isPlaying: isPlaying, ipAddress: ipAddress)
+        let item = songs[indexPath.row]
+        let isPlaying = item.name == currentPlayState?.title
+        cell.configure(with: item, isPlaying: isPlaying, ipAddress: ipAddress)
         return cell
     }
 }
@@ -130,7 +160,7 @@ extension PlaylistViewController: UITableViewDataSource {
 extension PlaylistViewController: UITableViewDelegate {
     
     func tableView(_ tableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
-        return 56
+        return 60
     }
     
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
@@ -154,148 +184,13 @@ extension PlaylistViewController: TCPSocketManagerDelegate {
                 tableView.reloadData()
             }
         } else if command == "play_state" {
-            if let index = data["current_index"] as? Int {
-                currentIndex = index
-                tableView.reloadData()
-            }
+            currentPlayState = PlayState.from(json: data)
+            PlayStateManager.shared.update(from: data)
+            updatePlayingState()
         }
     }
     
     func tcpSocketManager(_ manager: TCPSocketManager, didReceiveError error: Error) {
         loadingIndicator.stopAnimating()
-    }
-}
-
-// MARK: - Playlist Item Cell
-
-class PlaylistItemCell: UITableViewCell {
-    
-    static let reuseIdentifier = "PlaylistItemCell"
-    
-    private lazy var playingIndicator: UIView = {
-        let view = UIView()
-        view.backgroundColor = .playing
-        view.setCornerRadius(2)
-        view.isHidden = true
-        return view
-    }()
-    
-    private lazy var indexLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 14)
-        label.textColor = .textSecondary
-        label.textAlignment = .center
-        return label
-    }()
-    
-    private lazy var nameLabel: UILabel = {
-        let label = UILabel()
-        label.font = .systemFont(ofSize: 15, weight: .medium)
-        label.textColor = .textPrimary
-        label.lineBreakMode = .byTruncatingTail
-        return label
-    }()
-    
-    private lazy var playingIconView: UIImageView = {
-        let imageView = UIImageView()
-        imageView.image = UIImage(systemName: "waveform")
-        imageView.tintColor = .playing
-        imageView.contentMode = .scaleAspectFit
-        imageView.isHidden = true
-        return imageView
-    }()
-    
-    private lazy var coverImageView: UIImageView = {
-        let imageView = UIImageView()
-        imageView.contentMode = .scaleAspectFill
-        imageView.backgroundColor = .secondaryBackground
-        imageView.setCornerRadius(6)
-        imageView.clipsToBounds = true
-        imageView.image = UIImage(systemName: "music.note")
-        imageView.tintColor = .textSecondary
-        return imageView
-    }()
-    
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setupUI()
-    }
-    
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-    
-    private func setupUI() {
-        backgroundColor = .clear
-        selectionStyle = .none
-        
-        contentView.addSubviewWithAutoLayout(playingIndicator)
-        contentView.addSubviewWithAutoLayout(indexLabel)
-        contentView.addSubviewWithAutoLayout(coverImageView)
-        contentView.addSubviewWithAutoLayout(nameLabel)
-        contentView.addSubviewWithAutoLayout(playingIconView)
-        
-        NSLayoutConstraint.activate([
-            playingIndicator.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
-            playingIndicator.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            playingIndicator.widthAnchor.constraint(equalToConstant: 4),
-            playingIndicator.heightAnchor.constraint(equalToConstant: 24),
-            
-            indexLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 16),
-            indexLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            indexLabel.widthAnchor.constraint(equalToConstant: 30),
-            
-            coverImageView.leadingAnchor.constraint(equalTo: indexLabel.trailingAnchor, constant: 4),
-            coverImageView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            coverImageView.widthAnchor.constraint(equalToConstant: 40),
-            coverImageView.heightAnchor.constraint(equalToConstant: 40),
-            
-            nameLabel.leadingAnchor.constraint(equalTo: coverImageView.trailingAnchor, constant: 12),
-            nameLabel.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            nameLabel.trailingAnchor.constraint(equalTo: playingIconView.leadingAnchor, constant: -8),
-            
-            playingIconView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -16),
-            playingIconView.centerYAnchor.constraint(equalTo: contentView.centerYAnchor),
-            playingIconView.widthAnchor.constraint(equalToConstant: 20),
-            playingIconView.heightAnchor.constraint(equalToConstant: 20)
-        ])
-    }
-    
-    func configure(with item: FileItem, isPlaying: Bool, ipAddress: String) {
-        nameLabel.text = item.name
-        playingIndicator.isHidden = !isPlaying
-        playingIconView.isHidden = !isPlaying
-        indexLabel.isHidden = isPlaying
-        
-        nameLabel.textColor = isPlaying ? .playing : .textPrimary
-        
-        // Load cover
-        loadCoverImage(item: item, ipAddress: ipAddress)
-    }
-    
-    private func loadCoverImage(item: FileItem, ipAddress: String) {
-        coverImageView.image = UIImage(systemName: "music.note") // Reset
-        
-        guard item.isSong else { return }
-        
-        var components = URLComponents()
-        components.scheme = "http"
-        components.host = ipAddress
-        components.port = 9012
-        components.path = "/cover"
-        components.queryItems = [
-            URLQueryItem(name: "path", value: item.path),
-            URLQueryItem(name: "default", value: "t_img_album.png")
-        ]
-        
-        guard let url = components.url else { return }
-        
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            if let data = data, let image = UIImage(data: data) {
-                DispatchQueue.main.async {
-                    self?.coverImageView.image = image
-                }
-            }
-        }.resume()
     }
 }
