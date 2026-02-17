@@ -38,7 +38,7 @@ class PlayerViewController: BaseViewController {
     private lazy var coverImageView: UIImageView = {
         let imageView = UIImageView()
         imageView.image = UIImage(systemName: "music.note")
-        imageView.tintColor = .accent
+        imageView.tintColor = .systemOrange
         imageView.contentMode = .scaleAspectFill
         imageView.backgroundColor = .secondaryBackground
         imageView.setCornerRadius(16)
@@ -73,9 +73,9 @@ class PlayerViewController: BaseViewController {
     
     private lazy var progressSlider: UISlider = {
         let slider = UISlider()
-        slider.minimumTrackTintColor = .accent
+        slider.minimumTrackTintColor = .systemOrange
         slider.maximumTrackTintColor = .separator
-        slider.thumbTintColor = .accent
+        slider.thumbTintColor = .systemOrange
         slider.addTarget(self, action: #selector(sliderValueChanged), for: .valueChanged)
         slider.addTarget(self, action: #selector(sliderTouchUp), for: [.touchUpInside, .touchUpOutside])
         return slider
@@ -108,8 +108,12 @@ class PlayerViewController: BaseViewController {
     
     private lazy var previousButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "backward.fill"), for: .normal)
-        button.tintColor = .textPrimary
+        if let image = UIImage(named: "previous_white") {
+            button.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
+        } else {
+            button.setImage(UIImage(systemName: "backward.fill"), for: .normal)
+        }
+        button.tintColor = .systemOrange
         button.addTarget(self, action: #selector(previousTapped), for: .touchUpInside)
         return button
     }()
@@ -117,27 +121,31 @@ class PlayerViewController: BaseViewController {
     private lazy var playButton: UIButton = {
         let button = UIButton(type: .system)
         button.setImage(UIImage(systemName: "play.circle.fill"), for: .normal)
-        button.tintColor = .accent
+        button.tintColor = .systemOrange
         button.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
         return button
     }()
     
     private lazy var nextButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "forward.fill"), for: .normal)
-        button.tintColor = .textPrimary
+        if let image = UIImage(named: "next_white") {
+            button.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
+        } else {
+            button.setImage(UIImage(systemName: "forward.fill"), for: .normal)
+        }
+        button.tintColor = .systemOrange
         button.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
         return button
     }()
     
-    private lazy var favoriteButton: UIButton = {
-        let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "heart"), for: .normal)
-        button.tintColor = .textSecondary
-        button.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
-        return button
-    }()
-    
+//    private lazy var favoriteButton: UIButton = {
+//        let button = UIButton(type: .system)
+//        button.setImage(UIImage(systemName: "heart"), for: .normal)
+//        button.tintColor = .textSecondary
+//        button.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
+//        return button
+//    }()
+
     // MARK: - Properties
     
     private var playState: PlayState
@@ -248,21 +256,31 @@ class PlayerViewController: BaseViewController {
         ])
         
         // Controls
-        let controlsStack = UIStackView(arrangedSubviews: [playModeButton, previousButton, playButton, nextButton, favoriteButton], axis: .horizontal, spacing: 0, alignment: .center, distribution: .equalSpacing)
-        view.addSubviewWithAutoLayout(controlsStack)
+        // Removed favoriteButton
+        // Create a centered stack for the main playback controls
+        let mainControlsStack = UIStackView(arrangedSubviews: [previousButton, playButton, nextButton])
+        mainControlsStack.axis = .horizontal
+        mainControlsStack.spacing = 25 // Reduced spacing
+        mainControlsStack.alignment = .center
+        mainControlsStack.distribution = .fill
+        
+        view.addSubviewWithAutoLayout(playModeButton)
+        view.addSubviewWithAutoLayout(mainControlsStack)
         
         NSLayoutConstraint.activate([
-            controlsStack.topAnchor.constraint(equalTo: currentTimeLabel.bottomAnchor, constant: 30),
-            controlsStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 40),
-            controlsStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -40)
+            mainControlsStack.topAnchor.constraint(equalTo: currentTimeLabel.bottomAnchor, constant: 30),
+            mainControlsStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            
+            playModeButton.centerYAnchor.constraint(equalTo: mainControlsStack.centerYAnchor),
+            playModeButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 40)
         ])
         
         // Set button sizes
         playModeButton.setSize(width: 32, height: 32)
-        previousButton.setSize(width: 44, height: 44)
-        playButton.setSize(width: 70, height: 70)
-        nextButton.setSize(width: 44, height: 44)
-        favoriteButton.setSize(width: 32, height: 32)
+        previousButton.setSize(width: 30, height: 30)
+        playButton.setSize(width: 50, height: 50)
+        nextButton.setSize(width: 30, height: 30)
+        // favoriteButton.setSize(width: 32, height: 32)
         
         // Scale images
         playButton.imageView?.contentMode = .scaleAspectFit
@@ -287,9 +305,9 @@ class PlayerViewController: BaseViewController {
         
         updatePlayModeButton()
         
-        let heartIcon = playState.isFavorite ? "heart.fill" : "heart"
-        favoriteButton.setImage(UIImage(systemName: heartIcon), for: .normal)
-        favoriteButton.tintColor = playState.isFavorite ? .systemRed : .textSecondary
+//        let heartIcon = playState.isFavorite ? "heart.fill" : "heart"
+//        favoriteButton.setImage(UIImage(systemName: heartIcon), for: .normal)
+//        favoriteButton.tintColor = playState.isFavorite ? .systemRed : .textSecondary
         
         // Load cover
         if let url = playState.getCoverURL(ipAddress: ipAddress) {
@@ -298,19 +316,38 @@ class PlayerViewController: BaseViewController {
     }
     
     private func updatePlayModeButton() {
-        let icon: String
-        switch playState.playMode {
-        case .sequence:
-            icon = "arrow.right"
-        case .single:
-            icon = "repeat.1"
-        case .shuffle:
-            icon = "shuffle"
-        case .loop:
-            icon = "repeat"
+        if playState.playMode == .sequence {
+            if let image = UIImage(named: "sequence_yellow") {
+                playModeButton.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
+                playModeButton.tintColor = .systemOrange
+            } else {
+                playModeButton.setImage(UIImage(systemName: "arrow.right"), for: .normal)
+                playModeButton.tintColor = .systemOrange
+            }
+        } else {
+            let icon: String
+            switch playState.playMode {
+            case .single:
+                icon = "repeat.1"
+            case .shuffle:
+                icon = "shuffle"
+            case .loop:
+                icon = "repeat"
+            default:
+                icon = "arrow.right"
+            }
+            playModeButton.setImage(UIImage(systemName: icon), for: .normal)
+            playModeButton.tintColor = .systemOrange
         }
-        playModeButton.setImage(UIImage(systemName: icon), for: .normal)
-        playModeButton.tintColor = playState.playMode == .sequence ? .textSecondary : .accent
+        
+        let modeText: String
+        switch playState.playMode {
+        case .sequence: modeText = "顺序播放"
+        case .single: modeText = "单曲循环"
+        case .shuffle: modeText = "随机播放"
+        case .loop: modeText = "列表循环"
+        }
+        view.showToast(message: "已切换到 \(modeText)")
     }
     
     private func loadCoverImage(from url: URL) {
@@ -410,10 +447,10 @@ class PlayerViewController: BaseViewController {
         TCPSocketManager.shared.send(command: CommandBuilder.next())
     }
     
-    @objc private func favoriteTapped() {
-        print("[User Action] PlayerViewController - favoriteTapped")
-        // TODO: Toggle favorite
-    }
+//    @objc private func favoriteTapped() {
+//        print("[User Action] PlayerViewController - favoriteTapped")
+//        // TODO: Toggle favorite
+//    }
     
     private func formatTime(_ seconds: Int) -> String {
         let mins = seconds / 60

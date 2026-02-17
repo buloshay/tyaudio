@@ -16,7 +16,7 @@ class DeviceControlViewController: BaseViewController {
     private lazy var deviceIconView: UIImageView = {
         let imageView = UIImageView()
         imageView.image = UIImage(systemName: "hifispeaker.fill")
-        imageView.tintColor = .accent
+        imageView.tintColor = .systemOrange
         imageView.contentMode = .scaleAspectFit
         return imageView
     }()
@@ -328,7 +328,7 @@ class DeviceControlViewController: BaseViewController {
         } else {
             iconView.image = UIImage(systemName: item.icon)
         }
-        iconView.tintColor = .accent
+        iconView.tintColor = .systemOrange
         iconView.contentMode = .scaleAspectFit
         
         let titleLabel = UILabel()
@@ -444,7 +444,7 @@ extension DeviceControlViewController: TCPSocketManagerDelegate {
             
         case .connecting:
             connectionStatusLabel.text = "◐ 连接中..."
-            connectionStatusLabel.textColor = .accent
+            connectionStatusLabel.textColor = .systemOrange
             
         case .failed:
             connectionStatusLabel.text = "○ 连接失败"

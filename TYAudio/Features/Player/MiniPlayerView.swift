@@ -26,7 +26,7 @@ class MiniPlayerView: UIView {
     private lazy var coverImageView: UIImageView = {
         let imageView = UIImageView()
         imageView.image = UIImage(systemName: "music.note")
-        imageView.tintColor = .accent
+        imageView.tintColor = .systemOrange
         imageView.contentMode = .scaleAspectFill
         imageView.backgroundColor = .secondaryBackground
         imageView.setCornerRadius(6)
@@ -54,23 +54,27 @@ class MiniPlayerView: UIView {
     
     private lazy var playButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "play.fill"), for: .normal)
-        button.tintColor = .textPrimary
+        button.setImage(UIImage(systemName: "play.circle.fill"), for: .normal)
+        button.tintColor = .systemOrange
         button.addTarget(self, action: #selector(playTapped), for: .touchUpInside)
         return button
     }()
     
     private lazy var nextButton: UIButton = {
         let button = UIButton(type: .system)
-        button.setImage(UIImage(systemName: "forward.fill"), for: .normal)
-        button.tintColor = .textPrimary
+        if let image = UIImage(named: "next_white") {
+            button.setImage(image.withRenderingMode(.alwaysTemplate), for: .normal)
+        } else {
+            button.setImage(UIImage(systemName: "forward.fill"), for: .normal)
+        }
+        button.tintColor = .systemOrange
         button.addTarget(self, action: #selector(nextTapped), for: .touchUpInside)
         return button
     }()
     
     private lazy var progressView: UIProgressView = {
         let progress = UIProgressView(progressViewStyle: .default)
-        progress.progressTintColor = .accent
+        progress.progressTintColor = .systemOrange
         progress.trackTintColor = .separator
         progress.progress = 0
         return progress
@@ -132,8 +136,8 @@ class MiniPlayerView: UIView {
             
             nextButton.trailingAnchor.constraint(equalTo: containerView.trailingAnchor, constant: -16),
             nextButton.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
-            nextButton.widthAnchor.constraint(equalToConstant: 44),
-            nextButton.heightAnchor.constraint(equalToConstant: 44),
+            nextButton.widthAnchor.constraint(equalToConstant: 30),
+            nextButton.heightAnchor.constraint(equalToConstant: 30),
             
             playButton.trailingAnchor.constraint(equalTo: nextButton.leadingAnchor, constant: -8),
             playButton.centerYAnchor.constraint(equalTo: containerView.centerYAnchor),
@@ -154,7 +158,7 @@ class MiniPlayerView: UIView {
         artistLabel.text = state.artist.isEmpty ? "-" : state.artist
         isPlaying = state.isPlaying
         
-        let playIcon = state.isPlaying ? "pause.fill" : "play.fill"
+        let playIcon = state.isPlaying ? "pause.circle.fill" : "play.circle.fill"
         playButton.setImage(UIImage(systemName: playIcon), for: .normal)
         
         progressView.progress = state.progressPercent
