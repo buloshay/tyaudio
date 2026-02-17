@@ -199,6 +199,7 @@ class DeviceScannerViewController: BaseViewController {
     private func setupUI() {
         view.backgroundColor = .background
         navigationController?.setNavigationBarHidden(true, animated: false)
+        hideCustomNavBar()
         
         // Header
         view.addSubviewWithAutoLayout(closeButton)
