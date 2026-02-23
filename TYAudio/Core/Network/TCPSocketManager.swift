@@ -99,6 +99,15 @@ class TCPSocketManager {
             case .ready:
                 self.connectionState = .connected
                 self.startReceiving()
+                
+                if self.isReconnecting {
+                    self.isReconnecting = false
+                    print("[TCP] Reconnected, refreshing play state")
+                    // 重连成功，自动刷新播放状态
+                    DispatchQueue.main.async {
+                        self.send(command: CommandBuilder.getPlayState())
+                    }
+                }
             case .failed(let error):
                 self.connectionState = .failed(error)
             case .cancelled:
@@ -117,7 +126,8 @@ class TCPSocketManager {
         connection?.cancel()
         connection = nil
         connectionState = .disconnected
-        currentHost = nil
+        currentHost = nil // 清除 host 防止自动重连
+        isReconnecting = false
     }
     
     /// 是否已连接
@@ -179,6 +189,22 @@ class TCPSocketManager {
         })
     }
     
+    // MARK: - Reconnection
+    
+    /// 是否是重连操作
+    private var isReconnecting = false
+    
+    /// App 回到前台时调用
+    func handleAppDidBecomeActive() {
+        guard !isConnected,
+              let host = currentHost,
+              !host.isEmpty else { return }
+        
+        print("[TCP] Connection lost while in background, reconnecting to \(host):\(currentPort)")
+        isReconnecting = true
+        connect(host: host, port: currentPort)
+    }
+
     // MARK: - Private Methods
     
     /// 打包消息：8字节长度前缀 + JSON数据

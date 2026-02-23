@@ -182,6 +182,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TYAudio/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "需要访问相机以扫描设备二维码";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "需要访问本地网络以发现和连接音响设备";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "需要访问照片以保存远程截图和录像";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "需要访问照片以读取和保存远程截图和录像";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -221,6 +222,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = TYAudio/Info.plist;
 				INFOPLIST_KEY_NSCameraUsageDescription = "需要访问相机以扫描设备二维码";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "需要访问本地网络以发现和连接音响设备";
 				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "需要访问照片以保存远程截图和录像";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "需要访问照片以读取和保存远程截图和录像";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
