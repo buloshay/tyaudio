@@ -292,7 +292,9 @@ class FileBrowserViewController: BaseViewController {
     private static let rootPathNames: [String: String] = [
         "/mnt/sda": "硬盘",
         "/mnt/usb": "U盘",
-        "/mnt/tf": "TF卡"
+        "/mnt/tf": "TF",
+        "/storage/emulated/0": "硬盘",
+        "/storage/emulated/legacy": "硬盘"
     ]
     
     /// 获取路径的显示名称
@@ -456,7 +458,7 @@ extension FileBrowserViewController: TCPSocketManagerDelegate {
                 // 自动进入根目录逻辑：
                 // 硬盘("/mnt/sda")，U盘("/mnt/usb")，TF卡("/mnt/tf")
                 // 如果只有一个节点挂载，初始化进入时候还需要进入其挂载节点下的内容展示
-                let rootPaths = ["/mnt/sda", "/mnt/usb", "/mnt/tf"]
+                let rootPaths = ["/mnt/sda", "/mnt/usb", "/mnt/tf", "/storage/emulated/0", "/storage/emulated/legacy"]
                 // 检查当前路径是否是根路径之一 (忽略末尾斜杠差异)
                 let isRootPath = rootPaths.contains { root in
                     // 简单的路径匹配，去除末尾 /

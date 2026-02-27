@@ -82,9 +82,9 @@ class DeviceControlViewController: BaseViewController {
             switch self {
             case .storage:
                 return [
-                    FeatureItem(icon: "externaldrive.fill", title: "硬盘", action: .storage(.hardDrive)),
-                    FeatureItem(icon: "icon_usb", title: "U盘", action: .storage(.usb), isCustomIcon: true),
-                    FeatureItem(icon: "sdcard.fill", title: "TF卡", action: .storage(.tfCard))
+                    FeatureItem(icon: "externaldrive.fill", title: StorageType.hardDrive.entryTitle, action: .storage(.hardDrive)),
+                    FeatureItem(icon: "icon_usb", title: StorageType.usb.entryTitle, action: .storage(.usb), isCustomIcon: true),
+                    FeatureItem(icon: "sdcard.fill", title: StorageType.tfCard.entryTitle, action: .storage(.tfCard))
                 ]
             case .category:
                 return [
@@ -134,6 +134,14 @@ class DeviceControlViewController: BaseViewController {
         case hardDrive
         case usb
         case tfCard
+
+        var entryTitle: String {
+            switch self {
+            case .hardDrive: return "硬盘"
+            case .usb: return "U盘"
+            case .tfCard: return "TF"
+            }
+        }
         
         var path: String {
             switch self {
@@ -378,7 +386,7 @@ class DeviceControlViewController: BaseViewController {
         case .storage(let type):
             let vc = FileBrowserViewController(
                 path: type.path,
-                title: type == .hardDrive ? "硬盘" : type == .usb ? "U盘" : "TF卡",
+                title: type.entryTitle,
                 ipAddress: device.ipAddress,
                 shouldAutoEnterSingleRoot: true,
                 shouldKeepTitleFixed: true,
