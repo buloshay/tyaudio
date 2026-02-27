@@ -376,7 +376,14 @@ class DeviceControlViewController: BaseViewController {
         print("[User Action] DeviceControlViewController - handleFeatureAction: \(action)")
         switch action {
         case .storage(let type):
-            let vc = FileBrowserViewController(path: type.path, title: type == .hardDrive ? "硬盘" : type == .usb ? "U盘" : "TF卡", ipAddress: device.ipAddress, shouldAutoEnterSingleRoot: true)
+            let vc = FileBrowserViewController(
+                path: type.path,
+                title: type == .hardDrive ? "硬盘" : type == .usb ? "U盘" : "TF卡",
+                ipAddress: device.ipAddress,
+                shouldAutoEnterSingleRoot: true,
+                shouldKeepTitleFixed: true,
+                shouldPopOnBack: true
+            )
             navigationController?.pushViewController(vc, animated: true)
             
         case .category(let type):

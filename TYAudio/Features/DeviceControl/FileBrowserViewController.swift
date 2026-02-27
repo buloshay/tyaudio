@@ -68,6 +68,9 @@ class FileBrowserViewController: BaseViewController {
     
     private var currentPath: String
     private var pageTitle: String
+    private let fixedNavTitle: String
+    private let shouldKeepTitleFixed: Bool
+    private let shouldPopOnBack: Bool
     private var isFavorites: Bool
     private var ipAddress: String?
     private var files: [FileItem] = []
@@ -81,9 +84,20 @@ class FileBrowserViewController: BaseViewController {
     
     // MARK: - Initialization
     
-    init(path: String, title: String, isFavorites: Bool = false, ipAddress: String? = nil, shouldAutoEnterSingleRoot: Bool = false) {
+    init(
+        path: String,
+        title: String,
+        isFavorites: Bool = false,
+        ipAddress: String? = nil,
+        shouldAutoEnterSingleRoot: Bool = false,
+        shouldKeepTitleFixed: Bool = false,
+        shouldPopOnBack: Bool = false
+    ) {
         self.currentPath = path
         self.pageTitle = title
+        self.fixedNavTitle = title
+        self.shouldKeepTitleFixed = shouldKeepTitleFixed
+        self.shouldPopOnBack = shouldPopOnBack
         self.isFavorites = isFavorites
         self.ipAddress = ipAddress
         self.shouldAutoEnterSingleRoot = shouldAutoEnterSingleRoot
@@ -99,7 +113,7 @@ class FileBrowserViewController: BaseViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupUI()
-        setupNavBar(title: pageTitle)
+        setupNavBar(title: fixedNavTitle)
         TCPSocketManager.shared.addDelegate(self)
         
         // 监听全局播放状态变化（其他页面触发的播放）
@@ -208,6 +222,12 @@ class FileBrowserViewController: BaseViewController {
     // MARK: - Actions
     
     override func navBackTapped() {
+        // 需求：硬盘/U盘/TF 页面左上返回直接退出页面，不做目录回退
+        if shouldPopOnBack {
+            navigationController?.popViewController(animated: true)
+            return
+        }
+        
         if navigationStack.isEmpty {
             navigationController?.popViewController(animated: true)
         } else {
@@ -220,8 +240,12 @@ class FileBrowserViewController: BaseViewController {
     private func enterDirectory(_ item: FileItem) {
         navigationStack.append(currentPath)
         currentPath = item.path
-        pageTitle = item.name
-        navTitleLabel.text = Self.displayName(for: item.path, fallback: item.name)
+        if !shouldKeepTitleFixed {
+            pageTitle = item.name
+            navTitleLabel.text = Self.displayName(for: item.path, fallback: item.name)
+        } else {
+            navTitleLabel.text = fixedNavTitle
+        }
         updateBreadcrumb()
         loadFiles()
     }
@@ -332,8 +356,12 @@ class FileBrowserViewController: BaseViewController {
         // 跳转到目标层级
         currentPath = pathChain[targetIndex]
         navigationStack = Array(navigationStack.prefix(targetIndex))
-        pageTitle = Self.displayName(for: currentPath)
-        navTitleLabel.text = pageTitle
+        if shouldKeepTitleFixed {
+            navTitleLabel.text = fixedNavTitle
+        } else {
+            pageTitle = Self.displayName(for: currentPath)
+            navTitleLabel.text = pageTitle
+        }
         updateBreadcrumb()
         loadFiles()
     }
