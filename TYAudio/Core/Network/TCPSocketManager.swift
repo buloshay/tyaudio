@@ -100,6 +100,11 @@ class TCPSocketManager {
         
         currentHost = host
         currentPort = port
+        isManualDisconnect = false
+        cancelReconnectTimer()
+        if !isReconnecting {
+            reconnectAttempts = 0
+        }
         connectionState = .connecting
         
         let endpoint = NWEndpoint.hostPort(host: NWEndpoint.Host(host), port: NWEndpoint.Port(rawValue: port)!)
@@ -123,9 +128,12 @@ class TCPSocketManager {
                     }
                 }
             case .failed(let error):
-                self.connectionState = .failed(error)
-                // T019: 连接失败时触发自动重连
-                self.scheduleReconnectIfNeeded()
+                // T019: 连接失败优先走自动重连；仅在无法重连时再上抛 failed
+                if self.scheduleReconnectIfNeeded() {
+                    self.connectionState = .connecting
+                } else {
+                    self.connectionState = .failed(error)
+                }
             case .cancelled:
                 self.connectionState = .disconnected
             default:
@@ -233,7 +241,9 @@ class TCPSocketManager {
     }
     
     /// 判断并调度自动重连
-    private func scheduleReconnectIfNeeded() {
+    /// - Returns: true 表示已调度重连；false 表示不会再重连
+    @discardableResult
+    private func scheduleReconnectIfNeeded() -> Bool {
         guard autoReconnectEnabled,
               !isManualDisconnect,
               reconnectAttempts < maxReconnectAttempts,
@@ -242,7 +252,7 @@ class TCPSocketManager {
             if reconnectAttempts >= maxReconnectAttempts {
                 print("[TCP] ⚠️ Auto-reconnect exhausted (\(maxReconnectAttempts) attempts)")
             }
-            return
+            return false
         }
         
         let delay = reconnectDelay(for: reconnectAttempts)
@@ -263,6 +273,7 @@ class TCPSocketManager {
         }
         timer.resume()
         reconnectTimer = timer
+        return true
     }
     
     /// 取消重连计时器

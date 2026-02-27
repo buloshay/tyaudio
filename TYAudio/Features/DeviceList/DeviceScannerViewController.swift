@@ -406,14 +406,25 @@ class DeviceScannerViewController: BaseViewController {
             guard let self = self else { return }
             self.hideLoading()
             
+            var device = Device(ipAddress: ip, port: port)
+            if let m = model {
+                device = Device(ipAddress: ip, port: port, model: m)
+            }
+            
             if reachable {
-                var device = Device(ipAddress: ip, port: port)
-                if let m = model {
-                    device = Device(ipAddress: ip, port: port, model: m)
-                }
                 self.addDevice(device)
             } else {
-                self.showAlert(title: "连接不可用", message: "无法连接到 \(ip):\(port)，请确认设备已开机且在同一局域网内")
+                // 兼容旧版行为：预检查失败时允许用户继续添加，避免误拦截可连接设备
+                let alert = UIAlertController(
+                    title: "预检查未通过",
+                    message: "当前无法确认 \(ip):\(port) 可达。你仍可继续添加并在设备列表中直接尝试连接。",
+                    preferredStyle: .alert
+                )
+                alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+                alert.addAction(UIAlertAction(title: "继续添加", style: .default) { _ in
+                    self.addDevice(device)
+                })
+                self.present(alert, animated: true)
             }
         }
     }

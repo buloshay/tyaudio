@@ -21,7 +21,7 @@ struct DeviceReachabilityValidator {
     /// 默认端口
     static let defaultPort: UInt16 = 8001
     /// 连接超时（秒）
-    static let connectionTimeout: TimeInterval = 3.0
+    static let connectionTimeout: TimeInterval = 5.0
     
     // MARK: - IP Format Validation
     
