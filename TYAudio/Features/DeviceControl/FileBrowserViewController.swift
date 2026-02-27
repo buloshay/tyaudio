@@ -16,7 +16,8 @@ class FileBrowserViewController: BaseViewController {
         let scrollView = UIScrollView()
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
-        scrollView.backgroundColor = .cardBackground
+        // 与导航栏视觉分离，单独一行显示路径
+        scrollView.backgroundColor = .background
         return scrollView
     }()
     
@@ -168,11 +169,11 @@ class FileBrowserViewController: BaseViewController {
             miniPlayerView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
             miniPlayerView.heightAnchor.constraint(equalToConstant: 70),
             
-            // 面包屑
-            breadcrumbScrollView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            // 面包屑（独立一行，不占用导航栏）
+            breadcrumbScrollView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor, constant: 4),
             breadcrumbScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             breadcrumbScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            breadcrumbScrollView.heightAnchor.constraint(equalToConstant: 36),
+            breadcrumbScrollView.heightAnchor.constraint(equalToConstant: 30),
             
             breadcrumbStackView.topAnchor.constraint(equalTo: breadcrumbScrollView.topAnchor),
             breadcrumbStackView.leadingAnchor.constraint(equalTo: breadcrumbScrollView.leadingAnchor, constant: 16),
@@ -180,7 +181,7 @@ class FileBrowserViewController: BaseViewController {
             breadcrumbStackView.bottomAnchor.constraint(equalTo: breadcrumbScrollView.bottomAnchor),
             breadcrumbStackView.heightAnchor.constraint(equalTo: breadcrumbScrollView.heightAnchor),
             
-            tableView.topAnchor.constraint(equalTo: breadcrumbScrollView.bottomAnchor),
+            tableView.topAnchor.constraint(equalTo: breadcrumbScrollView.bottomAnchor, constant: 4),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             tableView.bottomAnchor.constraint(equalTo: miniPlayerView.topAnchor),
@@ -293,20 +294,24 @@ class FileBrowserViewController: BaseViewController {
         "/mnt/sda": "硬盘",
         "/mnt/usb": "U盘",
         "/mnt/tf": "TF",
-        "/storage/emulated/0": "硬盘",
-        "/storage/emulated/legacy": "硬盘"
+        "/storage/emulated/0": "内置存储",
+        "/storage/emulated/legacy": "内置存储"
     ]
     
     /// 获取路径的显示名称
     static func displayName(for path: String, fallback: String? = nil) -> String {
-        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        for (rootPath, name) in rootPathNames {
-            let rootTrimmed = rootPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            if trimmed == rootTrimmed {
-                return name
-            }
+        let normalized = normalizePath(path)
+        if let mapped = rootPathNames[normalized] {
+            return mapped
         }
-        return fallback ?? (path as NSString).lastPathComponent
+        return fallback ?? (normalized as NSString).lastPathComponent
+    }
+    
+    /// 统一路径格式：去重连续斜杠并去除末尾斜杠（根路径除外）
+    private static func normalizePath(_ path: String) -> String {
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        if components.isEmpty { return "/" }
+        return "/" + components.joined(separator: "/")
     }
     
     /// 更新面包屑导航
