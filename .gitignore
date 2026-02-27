@@ -46,3 +46,9 @@ TY-i60 通讯协议(1).docx
 !default.mode2v3
 *.perspectivev3
 !default.perspectivev3
+
+# Android code
+TWRemoteController/
+
+# specs
+specs/

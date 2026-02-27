@@ -73,6 +73,18 @@ class TCPSocketManager {
     private(set) var currentHost: String?
     private(set) var currentPort: UInt16 = 8001 // 默认端口
     
+    // T019: 自动重连状态机
+    /// 是否启用自动重连
+    var autoReconnectEnabled: Bool = true
+    /// 当前重连尝试次数
+    private var reconnectAttempts: Int = 0
+    /// 最大重连次数
+    private let maxReconnectAttempts: Int = 5
+    /// 重连计时器
+    private var reconnectTimer: DispatchSourceTimer?
+    /// 是否用户主动断开（不触发自动重连）
+    private var isManualDisconnect: Bool = false
+    
     // MARK: - Initialization
     
     private init() {}
@@ -98,18 +110,22 @@ class TCPSocketManager {
             switch state {
             case .ready:
                 self.connectionState = .connected
+                self.reconnectAttempts = 0 // T019: 连接成功重置重连计数器
+                self.isManualDisconnect = false
+                self.cancelReconnectTimer()
                 self.startReceiving()
                 
                 if self.isReconnecting {
                     self.isReconnecting = false
                     print("[TCP] Reconnected, refreshing play state")
-                    // 重连成功，自动刷新播放状态
                     DispatchQueue.main.async {
                         self.send(command: CommandBuilder.getPlayState())
                     }
                 }
             case .failed(let error):
                 self.connectionState = .failed(error)
+                // T019: 连接失败时触发自动重连
+                self.scheduleReconnectIfNeeded()
             case .cancelled:
                 self.connectionState = .disconnected
             default:
@@ -123,10 +139,13 @@ class TCPSocketManager {
     /// 断开连接
     func disconnect() {
         print("[TCP] [App] Disconnecting from host...")
+        isManualDisconnect = true // T019: 标记为手动断开
+        cancelReconnectTimer()
+        reconnectAttempts = 0
         connection?.cancel()
         connection = nil
         connectionState = .disconnected
-        currentHost = nil // 清除 host 防止自动重连
+        currentHost = nil
         isReconnecting = false
     }
     
@@ -202,7 +221,54 @@ class TCPSocketManager {
         
         print("[TCP] Connection lost while in background, reconnecting to \(host):\(currentPort)")
         isReconnecting = true
+        reconnectAttempts = 0 // T019: 前台重连重置计数器
         connect(host: host, port: currentPort)
+    }
+    
+    // MARK: - T019: Auto Reconnect
+    
+    /// 计算重连延迟（指数退避）
+    private func reconnectDelay(for attempt: Int) -> TimeInterval {
+        return min(pow(2.0, Double(attempt)), 16.0) // 1s, 2s, 4s, 8s, 16s
+    }
+    
+    /// 判断并调度自动重连
+    private func scheduleReconnectIfNeeded() {
+        guard autoReconnectEnabled,
+              !isManualDisconnect,
+              reconnectAttempts < maxReconnectAttempts,
+              let host = currentHost,
+              !host.isEmpty else {
+            if reconnectAttempts >= maxReconnectAttempts {
+                print("[TCP] ⚠️ Auto-reconnect exhausted (\(maxReconnectAttempts) attempts)")
+            }
+            return
+        }
+        
+        let delay = reconnectDelay(for: reconnectAttempts)
+        reconnectAttempts += 1
+        print("[TCP] Scheduling auto-reconnect #\(reconnectAttempts) in \(delay)s")
+        
+        cancelReconnectTimer()
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + delay)
+        timer.setEventHandler { [weak self] in
+            guard let self = self else { return }
+            guard !self.isConnected else { return }
+            print("[TCP] Auto-reconnecting to \(host):\(self.currentPort) (attempt \(self.reconnectAttempts))")
+            self.isReconnecting = true
+            DispatchQueue.main.async {
+                self.connect(host: host, port: self.currentPort)
+            }
+        }
+        timer.resume()
+        reconnectTimer = timer
+    }
+    
+    /// 取消重连计时器
+    private func cancelReconnectTimer() {
+        reconnectTimer?.cancel()
+        reconnectTimer = nil
     }
 
     // MARK: - Private Methods
@@ -237,6 +303,8 @@ class TCPSocketManager {
             if isComplete {
                 print("[TCP] [Remote] Connection closed by remote host (EOF)")
                 self.connectionState = .disconnected
+                // T019: 远端关闭连接时也触发自动重连
+                self.scheduleReconnectIfNeeded()
                 return
             }
             

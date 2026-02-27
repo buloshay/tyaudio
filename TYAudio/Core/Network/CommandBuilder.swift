@@ -197,6 +197,17 @@ struct CommandBuilder {
         ]
     }
     
+    // MARK: - T039: 收藏
+    
+    /// 切换收藏状态
+    static func toggleFavorite(filePath: String, isFavorite: Bool) -> [String: Any] {
+        return [
+            "command": "fav",
+            "action": isFavorite ? "remove" : "add",
+            "file_path": filePath
+        ]
+    }
+    
     // MARK: - 其他
     
     /// Pong响应

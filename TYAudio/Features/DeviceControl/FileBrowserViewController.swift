@@ -11,7 +11,22 @@ class FileBrowserViewController: BaseViewController {
     
     // MARK: - UI Components
     
-
+    /// T025: 路径面包屑
+    private lazy var breadcrumbScrollView: UIScrollView = {
+        let scrollView = UIScrollView()
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.backgroundColor = .cardBackground
+        return scrollView
+    }()
+    
+    private lazy var breadcrumbStackView: UIStackView = {
+        let stack = UIStackView()
+        stack.axis = .horizontal
+        stack.spacing = 4
+        stack.alignment = .center
+        return stack
+    }()
     
     private lazy var tableView: UITableView = {
         let table = UITableView(frame: .zero, style: .plain)
@@ -40,6 +55,13 @@ class FileBrowserViewController: BaseViewController {
         label.textAlignment = .center
         label.isHidden = true
         return label
+    }()
+    
+    /// T029: 底部常驻 MiniPlayer
+    private lazy var miniPlayerView: MiniPlayerView = {
+        let view = MiniPlayerView()
+        view.delegate = self
+        return view
     }()
     
     // MARK: - Properties
@@ -87,6 +109,11 @@ class FileBrowserViewController: BaseViewController {
             queue: .main
         ) { [weak self] _ in
             self?.updatePlayingState()
+            // T029: 更新 MiniPlayer
+            if let state = PlayStateManager.shared.currentState,
+               let ip = self?.ipAddress {
+                self?.miniPlayerView.update(with: state, ipAddress: ip)
+            }
         }
         
         loadFiles()
@@ -108,16 +135,41 @@ class FileBrowserViewController: BaseViewController {
     private func setupUI() {
         view.backgroundColor = .background
         
+        // T025: 面包屑导航
+        view.addSubviewWithAutoLayout(breadcrumbScrollView)
+        breadcrumbScrollView.addSubviewWithAutoLayout(breadcrumbStackView)
+        
         // Table View
         view.addSubviewWithAutoLayout(tableView)
         view.addSubviewWithAutoLayout(loadingIndicator)
         view.addSubviewWithAutoLayout(emptyLabel)
         
+        // T029: MiniPlayer
+        view.addSubviewWithAutoLayout(miniPlayerView)
+        
         NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            // T029: MiniPlayer 固定在底部
+            miniPlayerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            miniPlayerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            miniPlayerView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            miniPlayerView.heightAnchor.constraint(equalToConstant: 70),
+            
+            // 面包屑
+            breadcrumbScrollView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            breadcrumbScrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            breadcrumbScrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            breadcrumbScrollView.heightAnchor.constraint(equalToConstant: 36),
+            
+            breadcrumbStackView.topAnchor.constraint(equalTo: breadcrumbScrollView.topAnchor),
+            breadcrumbStackView.leadingAnchor.constraint(equalTo: breadcrumbScrollView.leadingAnchor, constant: 16),
+            breadcrumbStackView.trailingAnchor.constraint(equalTo: breadcrumbScrollView.trailingAnchor, constant: -16),
+            breadcrumbStackView.bottomAnchor.constraint(equalTo: breadcrumbScrollView.bottomAnchor),
+            breadcrumbStackView.heightAnchor.constraint(equalTo: breadcrumbScrollView.heightAnchor),
+            
+            tableView.topAnchor.constraint(equalTo: breadcrumbScrollView.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.bottomAnchor.constraint(equalTo: miniPlayerView.topAnchor),
             
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
@@ -125,6 +177,8 @@ class FileBrowserViewController: BaseViewController {
             emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor)
         ])
+        
+        updateBreadcrumb()
     }
     
     /// 加载文件列表（有序流程：change_path -> 等待响应 -> playlist -> 等待响应）
@@ -167,7 +221,8 @@ class FileBrowserViewController: BaseViewController {
         navigationStack.append(currentPath)
         currentPath = item.path
         pageTitle = item.name
-        navTitleLabel.text = item.name
+        navTitleLabel.text = Self.displayName(for: item.path, fallback: item.name)
+        updateBreadcrumb()
         loadFiles()
     }
     
@@ -205,6 +260,82 @@ class FileBrowserViewController: BaseViewController {
                 }
             }
         }
+    }
+    
+    // MARK: - T025: Breadcrumb
+    
+    /// 根路径友好名称映射
+    private static let rootPathNames: [String: String] = [
+        "/mnt/sda": "硬盘",
+        "/mnt/usb": "U盘",
+        "/mnt/tf": "TF卡"
+    ]
+    
+    /// 获取路径的显示名称
+    static func displayName(for path: String, fallback: String? = nil) -> String {
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        for (rootPath, name) in rootPathNames {
+            let rootTrimmed = rootPath.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            if trimmed == rootTrimmed {
+                return name
+            }
+        }
+        return fallback ?? (path as NSString).lastPathComponent
+    }
+    
+    /// 更新面包屑导航
+    private func updateBreadcrumb() {
+        breadcrumbStackView.arrangedSubviews.forEach { $0.removeFromSuperview() }
+        
+        // 构建完整路径链：navigationStack + currentPath
+        var pathChain = navigationStack
+        pathChain.append(currentPath)
+        
+        for (index, path) in pathChain.enumerated() {
+            if index > 0 {
+                let separator = UILabel()
+                separator.text = ">"
+                separator.font = .systemFont(ofSize: 12)
+                separator.textColor = .textSecondary
+                breadcrumbStackView.addArrangedSubview(separator)
+            }
+            
+            let button = UIButton(type: .system)
+            let name = Self.displayName(for: path)
+            button.setTitle(name, for: .normal)
+            button.titleLabel?.font = .systemFont(ofSize: 13, weight: index == pathChain.count - 1 ? .semibold : .regular)
+            button.setTitleColor(index == pathChain.count - 1 ? .textPrimary : .accent, for: .normal)
+            button.tag = index
+            button.addTarget(self, action: #selector(breadcrumbTapped(_:)), for: .touchUpInside)
+            button.isEnabled = index < pathChain.count - 1 // 当前层不可点击
+            breadcrumbStackView.addArrangedSubview(button)
+        }
+        
+        // 滚动到最右
+        DispatchQueue.main.async {
+            let rightEdge = self.breadcrumbScrollView.contentSize.width - self.breadcrumbScrollView.bounds.width
+            if rightEdge > 0 {
+                self.breadcrumbScrollView.setContentOffset(CGPoint(x: rightEdge, y: 0), animated: true)
+            }
+        }
+    }
+    
+    @objc private func breadcrumbTapped(_ sender: UIButton) {
+        let targetIndex = sender.tag
+        
+        // 第 0 个是初始路径，中间的是导航栈，最后一个是 currentPath
+        var pathChain = navigationStack
+        pathChain.append(currentPath)
+        
+        guard targetIndex < pathChain.count - 1 else { return }
+        
+        // 跳转到目标层级
+        currentPath = pathChain[targetIndex]
+        navigationStack = Array(navigationStack.prefix(targetIndex))
+        pageTitle = Self.displayName(for: currentPath)
+        navTitleLabel.text = pageTitle
+        updateBreadcrumb()
+        loadFiles()
     }
 }
 
@@ -336,6 +467,27 @@ extension FileBrowserViewController: TCPSocketManagerDelegate {
         if loadingIndicator.isAnimating {
             showError()
         }
+    }
+}
+
+// MARK: - T029: MiniPlayerViewDelegate
+
+extension FileBrowserViewController: MiniPlayerViewDelegate {
+    
+    func miniPlayerViewDidTapPlay(_ view: MiniPlayerView) {
+        TCPSocketManager.shared.send(command: CommandBuilder.playPause())
+    }
+    
+    func miniPlayerViewDidTapNext(_ view: MiniPlayerView) {
+        TCPSocketManager.shared.send(command: CommandBuilder.next())
+    }
+    
+    func miniPlayerViewDidTap(_ view: MiniPlayerView) {
+        guard let state = PlayStateManager.shared.currentState,
+              let ip = ipAddress else { return }
+        let playerVC = PlayerViewController(playState: state, ipAddress: ip)
+        playerVC.modalPresentationStyle = .fullScreen
+        present(playerVC, animated: true)
     }
 }
 

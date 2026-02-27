@@ -54,6 +54,14 @@ struct CategoryItem: Identifiable, Equatable {
     let name: String
     let type: CategoryType
     let itemCount: Int
+    let path: String
+    
+    /// 过滤 ~!@#$% 分隔符后的显示名称
+    var displayName: String {
+        let separator = "~!@#$%"
+        guard let range = name.range(of: separator) else { return name }
+        return String(name[..<range.lowerBound])
+    }
     
     /// 从JSON解析
     static func from(json: [String: Any], type: CategoryType) -> CategoryItem? {
@@ -62,7 +70,8 @@ struct CategoryItem: Identifiable, Equatable {
         }
         
         let count = json["count"] as? Int ?? 0
-        return CategoryItem(name: name, type: type, itemCount: count)
+        let path = json["path"] as? String ?? ""
+        return CategoryItem(name: name, type: type, itemCount: count, path: path)
     }
 }
 

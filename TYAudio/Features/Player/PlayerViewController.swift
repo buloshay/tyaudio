@@ -51,7 +51,8 @@ class PlayerViewController: BaseViewController {
         label.font = .systemFont(ofSize: 24, weight: .bold)
         label.textColor = .textPrimary
         label.textAlignment = .center
-        label.numberOfLines = 2
+        label.numberOfLines = 1 // T036: 单行固定高度
+        label.lineBreakMode = .byTruncatingTail
         return label
     }()
     
@@ -138,13 +139,14 @@ class PlayerViewController: BaseViewController {
         return button
     }()
     
-//    private lazy var favoriteButton: UIButton = {
-//        let button = UIButton(type: .system)
-//        button.setImage(UIImage(systemName: "heart"), for: .normal)
-//        button.tintColor = .textSecondary
-//        button.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
-//        return button
-//    }()
+    // T038: 恢复收藏按钮
+    private lazy var favoriteButton: UIButton = {
+        let button = UIButton(type: .system)
+        button.setImage(UIImage(systemName: "heart"), for: .normal)
+        button.tintColor = .textSecondary
+        button.addTarget(self, action: #selector(favoriteTapped), for: .touchUpInside)
+        return button
+    }()
 
     // MARK: - Properties
     
@@ -186,20 +188,14 @@ class PlayerViewController: BaseViewController {
     private func setupUI() {
         view.backgroundColor = .background
         
-        // Header
+        // Header — T035: playlistButton 移到控制区
         view.addSubviewWithAutoLayout(closeButton)
-        view.addSubviewWithAutoLayout(playlistButton)
         
         NSLayoutConstraint.activate([
             closeButton.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 8),
             closeButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
             closeButton.widthAnchor.constraint(equalToConstant: 44),
-            closeButton.heightAnchor.constraint(equalToConstant: 44),
-            
-            playlistButton.topAnchor.constraint(equalTo: closeButton.topAnchor),
-            playlistButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            playlistButton.widthAnchor.constraint(equalToConstant: 44),
-            playlistButton.heightAnchor.constraint(equalToConstant: 44)
+            closeButton.heightAnchor.constraint(equalToConstant: 44)
         ])
         
         // Cover
@@ -219,7 +215,7 @@ class PlayerViewController: BaseViewController {
             coverImageView.bottomAnchor.constraint(equalTo: coverContainerView.bottomAnchor, constant: -8)
         ])
         
-        // Song Info
+        // Song Info — T036: 固定高度
         view.addSubviewWithAutoLayout(titleLabel)
         view.addSubviewWithAutoLayout(artistLabel)
         view.addSubviewWithAutoLayout(albumLabel)
@@ -228,6 +224,7 @@ class PlayerViewController: BaseViewController {
             titleLabel.topAnchor.constraint(equalTo: coverContainerView.bottomAnchor, constant: 30),
             titleLabel.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
             titleLabel.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24),
+            titleLabel.heightAnchor.constraint(equalToConstant: 30), // T036: 固定高度
             
             artistLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 8),
             artistLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
@@ -255,32 +252,41 @@ class PlayerViewController: BaseViewController {
             durationLabel.trailingAnchor.constraint(equalTo: progressSlider.trailingAnchor)
         ])
         
-        // Controls
-        // Removed favoriteButton
-        // Create a centered stack for the main playback controls
+        // Controls — T035: 对称布局：[playMode] [fav]  [prev][play][next]  [playlist]
         let mainControlsStack = UIStackView(arrangedSubviews: [previousButton, playButton, nextButton])
         mainControlsStack.axis = .horizontal
-        mainControlsStack.spacing = 25 // Reduced spacing
+        mainControlsStack.spacing = 25
         mainControlsStack.alignment = .center
         mainControlsStack.distribution = .fill
         
         view.addSubviewWithAutoLayout(playModeButton)
+        view.addSubviewWithAutoLayout(favoriteButton) // T038
         view.addSubviewWithAutoLayout(mainControlsStack)
+        view.addSubviewWithAutoLayout(playlistButton) // T035: 移到控制区
         
         NSLayoutConstraint.activate([
             mainControlsStack.topAnchor.constraint(equalTo: currentTimeLabel.bottomAnchor, constant: 30),
             mainControlsStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             
+            // T035: 左侧：播放模式 + 收藏
             playModeButton.centerYAnchor.constraint(equalTo: mainControlsStack.centerYAnchor),
-            playModeButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 40)
+            playModeButton.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 24),
+            
+            favoriteButton.centerYAnchor.constraint(equalTo: mainControlsStack.centerYAnchor),
+            favoriteButton.leadingAnchor.constraint(equalTo: playModeButton.trailingAnchor, constant: 12),
+            
+            // T035: 右侧：播放列表
+            playlistButton.centerYAnchor.constraint(equalTo: mainControlsStack.centerYAnchor),
+            playlistButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -24)
         ])
         
         // Set button sizes
         playModeButton.setSize(width: 32, height: 32)
+        favoriteButton.setSize(width: 32, height: 32) // T038
         previousButton.setSize(width: 30, height: 30)
         playButton.setSize(width: 50, height: 50)
         nextButton.setSize(width: 30, height: 30)
-        // favoriteButton.setSize(width: 32, height: 32)
+        playlistButton.setSize(width: 32, height: 32) // T035
         
         // Scale images
         playButton.imageView?.contentMode = .scaleAspectFit
@@ -291,7 +297,7 @@ class PlayerViewController: BaseViewController {
     private func updateUI() {
         titleLabel.text = playState.title.isEmpty ? "未知歌曲" : playState.title
         artistLabel.text = playState.artist.isEmpty ? "未知艺术家" : playState.artist
-        albumLabel.text = playState.album.isEmpty ? "" : playState.album
+        albumLabel.text = playState.cleanAlbumName.isEmpty ? "" : playState.cleanAlbumName // T037: 过滤协议后缀
         
         currentTimeLabel.text = playState.formattedProgress
         durationLabel.text = playState.formattedDuration
@@ -305,9 +311,11 @@ class PlayerViewController: BaseViewController {
         
         updatePlayModeButton()
         
-//        let heartIcon = playState.isFavorite ? "heart.fill" : "heart"
-//        favoriteButton.setImage(UIImage(systemName: heartIcon), for: .normal)
-//        favoriteButton.tintColor = playState.isFavorite ? .systemRed : .textSecondary
+        // T038: 收藏按钮——本地音源显示，流媒体隐藏
+        favoriteButton.isHidden = !playState.isLocalSource
+        let heartIcon = playState.isFavorite ? "heart.fill" : "heart"
+        favoriteButton.setImage(UIImage(systemName: heartIcon), for: .normal)
+        favoriteButton.tintColor = playState.isFavorite ? .systemRed : .textSecondary
         
         // Load cover
         if let url = playState.getCoverURL(ipAddress: ipAddress) {
@@ -447,10 +455,18 @@ class PlayerViewController: BaseViewController {
         TCPSocketManager.shared.send(command: CommandBuilder.next())
     }
     
-//    @objc private func favoriteTapped() {
-//        print("[User Action] PlayerViewController - favoriteTapped")
-//        // TODO: Toggle favorite
-//    }
+    // T038 + T039: 收藏切换
+    @objc private func favoriteTapped() {
+        print("[User Action] PlayerViewController - favoriteTapped")
+        guard !playState.filePath.isEmpty else { return }
+        TCPSocketManager.shared.send(command: CommandBuilder.toggleFavorite(
+            filePath: playState.filePath,
+            isFavorite: playState.isFavorite
+        ))
+        // 乐观更新 UI
+        playState.isFavorite.toggle()
+        updateUI()
+    }
     
     private func formatTime(_ seconds: Int) -> String {
         let mins = seconds / 60

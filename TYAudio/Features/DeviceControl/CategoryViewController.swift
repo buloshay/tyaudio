@@ -11,8 +11,6 @@ class CategoryViewController: BaseViewController {
     
     // MARK: - UI Components
     
-
-    
     private lazy var tableView: UITableView = {
         let table = UITableView(frame: .zero, style: .plain)
         table.backgroundColor = .clear
@@ -24,11 +22,33 @@ class CategoryViewController: BaseViewController {
         return table
     }()
     
+    /// T030: 专辑/歌手网格视图（2列）
+    private lazy var collectionView: UICollectionView = {
+        let layout = UICollectionViewFlowLayout()
+        layout.minimumInteritemSpacing = 12
+        layout.minimumLineSpacing = 12
+        layout.sectionInset = UIEdgeInsets(top: 12, left: 16, bottom: 100, right: 16)
+        let cv = UICollectionView(frame: .zero, collectionViewLayout: layout)
+        cv.backgroundColor = .clear
+        cv.delegate = self
+        cv.dataSource = self
+        cv.register(AlbumGridCell.self, forCellWithReuseIdentifier: AlbumGridCell.reuseIdentifier)
+        cv.isHidden = true
+        return cv
+    }()
+    
     private lazy var loadingIndicator: UIActivityIndicatorView = {
         let indicator = UIActivityIndicatorView(style: .large)
         indicator.color = .accent
         indicator.hidesWhenStopped = true
         return indicator
+    }()
+    
+    /// T029: 底部常驻 MiniPlayer
+    private lazy var miniPlayerView: MiniPlayerView = {
+        let view = MiniPlayerView()
+        view.delegate = self
+        return view
     }()
     
     // MARK: - Properties
@@ -70,6 +90,10 @@ class CategoryViewController: BaseViewController {
         ) { [weak self] _ in
             guard let self = self else { return }
             self.updatePlayingState()
+            // T029: 更新 MiniPlayer
+            if let state = PlayStateManager.shared.currentState {
+                self.miniPlayerView.update(with: state, ipAddress: self.ipAddress)
+            }
         }
     }
     
@@ -91,13 +115,30 @@ class CategoryViewController: BaseViewController {
         
         // Table View
         view.addSubviewWithAutoLayout(tableView)
+        // T030: Collection View (grid)
+        view.addSubviewWithAutoLayout(collectionView)
         view.addSubviewWithAutoLayout(loadingIndicator)
         
+        // T029: MiniPlayer
+        view.addSubviewWithAutoLayout(miniPlayerView)
+        
         NSLayoutConstraint.activate([
+            // T029: MiniPlayer 固定在底部
+            miniPlayerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            miniPlayerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            miniPlayerView.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+            miniPlayerView.heightAnchor.constraint(equalToConstant: 70),
+            
             tableView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
             tableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            tableView.bottomAnchor.constraint(equalTo: miniPlayerView.topAnchor),
+            
+            // T030: collectionView 同 tableView 位置
+            collectionView.topAnchor.constraint(equalTo: customNavigationBar.bottomAnchor),
+            collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            collectionView.bottomAnchor.constraint(equalTo: miniPlayerView.topAnchor),
             
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor)
@@ -121,6 +162,7 @@ class CategoryViewController: BaseViewController {
         loadingIndicator.startAnimating()
         items = []
         tableView.reloadData()
+        collectionView.reloadData()
         
         // 始终使用 count=-1 获取完整数据（count=0 仅通知设备不返回数据）
         let command = CommandBuilder.category(type: categoryType, name: selectedCategoryName ?? "", count: -1,updateList: true)
@@ -129,6 +171,23 @@ class CategoryViewController: BaseViewController {
         
         // 获取播放状态以更新高亮（歌曲列表和分类列表都需要）
         TCPSocketManager.shared.send(command: CommandBuilder.getPlayState())
+    }
+    
+    /// T030: 判断是否使用网格布局（专辑/歌手 + 非歌曲列表）
+    private var shouldUseGridLayout: Bool {
+        return !isShowingSongs && (categoryType == .album || categoryType == .artist)
+    }
+    
+    /// T030: 切换 tableView / collectionView 显示
+    private func updateListViewVisibility() {
+        let useGrid = shouldUseGridLayout
+        tableView.isHidden = useGrid
+        collectionView.isHidden = !useGrid
+        if useGrid {
+            collectionView.reloadData()
+        } else {
+            tableView.reloadData()
+        }
     }
     
     // MARK: - Actions
@@ -258,8 +317,9 @@ extension CategoryViewController: TCPSocketManagerDelegate {
                     items = list.compactMap { CategoryItem.from(json: $0, type: categoryType) }
                 }
                 
-                tableView.reloadData()
-                print("[Category] 解析完成: \(items.count)条, isSongList=\(isSongList)")
+                // T030: 根据类型切换 table/grid 显示
+                updateListViewVisibility()
+                print("[Category] 解析完成: \(items.count)条, isSongList=\(isSongList), useGrid=\(shouldUseGridLayout)")
             }
         } else if command == "play_state" {
             // 更新全局单例（通知会自动触发 updatePlayingState）
@@ -269,6 +329,26 @@ extension CategoryViewController: TCPSocketManagerDelegate {
     
     func tcpSocketManager(_ manager: TCPSocketManager, didReceiveError error: Error) {
         loadingIndicator.stopAnimating()
+    }
+}
+
+// MARK: - T029: MiniPlayerViewDelegate
+
+extension CategoryViewController: MiniPlayerViewDelegate {
+    
+    func miniPlayerViewDidTapPlay(_ view: MiniPlayerView) {
+        TCPSocketManager.shared.send(command: CommandBuilder.playPause())
+    }
+    
+    func miniPlayerViewDidTapNext(_ view: MiniPlayerView) {
+        TCPSocketManager.shared.send(command: CommandBuilder.next())
+    }
+    
+    func miniPlayerViewDidTap(_ view: MiniPlayerView) {
+        guard let state = PlayStateManager.shared.currentState else { return }
+        let playerVC = PlayerViewController(playState: state, ipAddress: ipAddress)
+        playerVC.modalPresentationStyle = .fullScreen
+        present(playerVC, animated: true)
     }
 }
 
@@ -398,13 +478,7 @@ class CategoryItemCell: UITableViewCell {
     }
     
     func configure(with item: CategoryItem, isPlaying: Bool = false) {
-        // 专辑 name 可能含 ~!@#$% 分隔符，只显示分隔符前的部分
-        let separator = "~!@#$%"
-        if let range = item.name.range(of: separator) {
-            nameLabel.text = String(item.name[..<range.lowerBound])
-        } else {
-            nameLabel.text = item.name
-        }
+        nameLabel.text = item.displayName
         
         nameLabel.textColor = isPlaying ? .systemBlue : .textPrimary
         countLabel.text = item.itemCount > 0 ? "\(item.itemCount)首" : ""
@@ -492,5 +566,143 @@ class CategoryItemCell: UITableViewCell {
         } else {
             waveformView.stopAnimating()
         }
+    }
+}
+
+// MARK: - T030: UICollectionViewDataSource
+
+extension CategoryViewController: UICollectionViewDataSource {
+    
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return shouldUseGridLayout ? items.count : 0
+    }
+    
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AlbumGridCell.reuseIdentifier, for: indexPath) as? AlbumGridCell else {
+            return UICollectionViewCell()
+        }
+        
+        if let categoryItem = items[indexPath.item] as? CategoryItem {
+            let isPlaying = PlayStateManager.shared.isCategoryPlaying(name: categoryItem.name, categoryType: categoryType)
+            cell.configure(with: categoryItem, ipAddress: ipAddress, isPlaying: isPlaying)
+        }
+        
+        return cell
+    }
+}
+
+// MARK: - T030: UICollectionViewDelegate
+
+extension CategoryViewController: UICollectionViewDelegate {
+    
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        if let categoryItem = items[indexPath.item] as? CategoryItem {
+            selectCategory(categoryItem)
+        }
+    }
+}
+
+// MARK: - T030: UICollectionViewDelegateFlowLayout
+
+extension CategoryViewController: UICollectionViewDelegateFlowLayout {
+    
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+        // 2 列网格，间距 12，左右边距 16
+        let totalSpacing: CGFloat = 16 * 2 + 12
+        let itemWidth = (collectionView.bounds.width - totalSpacing) / 2
+        // 高度 = 封面(正方形) + 名称区域(40pt)
+        let itemHeight = itemWidth + 40
+        return CGSize(width: itemWidth, height: itemHeight)
+    }
+}
+
+// MARK: - T030: AlbumGridCell
+
+class AlbumGridCell: UICollectionViewCell {
+    
+    static let reuseIdentifier = "AlbumGridCell"
+    
+    private lazy var coverImageView: UIImageView = {
+        let imageView = UIImageView()
+        imageView.contentMode = .scaleAspectFill
+        imageView.clipsToBounds = true
+        imageView.layer.cornerRadius = 8
+        imageView.backgroundColor = .secondaryBackground
+        imageView.image = UIImage(systemName: "music.note")
+        imageView.tintColor = .textSecondary
+        return imageView
+    }()
+    
+    private lazy var nameLabel: UILabel = {
+        let label = UILabel()
+        label.font = .systemFont(ofSize: 14, weight: .medium)
+        label.textColor = .textPrimary
+        label.textAlignment = .center
+        label.numberOfLines = 1
+        label.lineBreakMode = .byTruncatingTail
+        return label
+    }()
+    
+    private var currentImageTask: URLSessionDataTask?
+    
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        setupUI()
+    }
+    
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        currentImageTask?.cancel()
+        currentImageTask = nil
+        coverImageView.image = UIImage(systemName: "music.note")
+        coverImageView.tintColor = .textSecondary
+        nameLabel.text = nil
+        nameLabel.textColor = .textPrimary
+    }
+    
+    private func setupUI() {
+        contentView.backgroundColor = .cardBackground
+        contentView.layer.cornerRadius = 10
+        contentView.clipsToBounds = true
+        
+        contentView.addSubviewWithAutoLayout(coverImageView)
+        contentView.addSubviewWithAutoLayout(nameLabel)
+        
+        NSLayoutConstraint.activate([
+            coverImageView.topAnchor.constraint(equalTo: contentView.topAnchor),
+            coverImageView.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+            coverImageView.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+            coverImageView.heightAnchor.constraint(equalTo: coverImageView.widthAnchor),
+            
+            nameLabel.topAnchor.constraint(equalTo: coverImageView.bottomAnchor, constant: 6),
+            nameLabel.leadingAnchor.constraint(equalTo: contentView.leadingAnchor, constant: 6),
+            nameLabel.trailingAnchor.constraint(equalTo: contentView.trailingAnchor, constant: -6),
+            nameLabel.bottomAnchor.constraint(lessThanOrEqualTo: contentView.bottomAnchor, constant: -6)
+        ])
+    }
+    
+    func configure(with item: CategoryItem, ipAddress: String, isPlaying: Bool = false) {
+        nameLabel.text = item.displayName
+        nameLabel.textColor = isPlaying ? .systemBlue : .textPrimary
+        
+        // 加载封面：/cover?path={path}&default=t_img_album.png
+        guard !item.path.isEmpty else { return }
+        let encodedPath = item.path.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+        let urlStr = "http://\(ipAddress):9012/cover?path=\(encodedPath)&default=t_img_album.png"
+        guard let url = URL(string: urlStr) else { return }
+        
+        currentImageTask = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+            if let data = data, let image = UIImage(data: data) {
+                DispatchQueue.main.async {
+                    self?.coverImageView.image = image
+                    self?.coverImageView.contentMode = .scaleAspectFill
+                }
+            }
+        }
+        currentImageTask?.resume()
     }
 }

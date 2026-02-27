@@ -40,6 +40,8 @@ class AppListViewController: BaseViewController {
     // MARK: - Properties
     
     private var apps: [AppItem] = []
+    /// 设备 IP 地址，用于拉取应用图标
+    var ipAddress: String?
     
     // MARK: - Lifecycle
     
@@ -104,7 +106,7 @@ extension AppListViewController: UICollectionViewDataSource {
         guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: AppCell.reuseIdentifier, for: indexPath) as? AppCell else {
             return UICollectionViewCell()
         }
-        cell.configure(with: apps[indexPath.item])
+        cell.configure(with: apps[indexPath.item], ipAddress: ipAddress)
         return cell
     }
 }
@@ -245,10 +247,48 @@ class AppCell: UICollectionViewCell {
         ])
     }
     
-    func configure(with app: AppItem) {
+    func configure(with app: AppItem, ipAddress: String? = nil) {
         nameLabel.text = app.title
         
-        // 尝试匹配已知应用图标
+        // T027: 优先从设备拉取图标
+        if let ip = ipAddress {
+            let iconURLString = "http://\(ip):9012/icon?package=\(app.packageName)"
+            if let url = URL(string: iconURLString) {
+                loadIcon(from: url, for: app)
+                return
+            }
+        }
+        
+        // 降级：尝试匹配已知应用图标
+        setLocalIcon(for: app)
+    }
+    
+    /// T027: 从设备 URL 加载图标
+    private func loadIcon(from url: URL, for app: AppItem) {
+        // 先显示加载中状态
+        iconImageView.image = UIImage(systemName: "app.fill")
+        iconImageView.tintColor = .accent
+        iconImageView.contentMode = .scaleAspectFit
+        iconView.backgroundColor = .cardBackground
+        
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                if let data = data, let image = UIImage(data: data) {
+                    self.iconImageView.image = image
+                    self.iconImageView.contentMode = .scaleAspectFill
+                    self.iconImageView.tintColor = nil
+                    self.iconView.backgroundColor = .clear
+                } else {
+                    // 网络加载失败，降级到本地图标
+                    self.setLocalIcon(for: app)
+                }
+            }
+        }.resume()
+    }
+    
+    /// 降级：本地图标映射 → 默认 SF Symbol
+    private func setLocalIcon(for app: AppItem) {
         if let assetName = AppCell.appIconName(for: app.packageName),
            let image = UIImage(named: assetName) {
             iconImageView.image = image
@@ -256,7 +296,6 @@ class AppCell: UICollectionViewCell {
             iconImageView.tintColor = nil
             iconView.backgroundColor = .clear
         } else {
-            // 未匹配到：使用默认 SF Symbol 图标
             iconImageView.image = UIImage(systemName: "app.fill")
             iconImageView.contentMode = .scaleAspectFit
             iconImageView.tintColor = .accent

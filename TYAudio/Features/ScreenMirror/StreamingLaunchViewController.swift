@@ -125,13 +125,13 @@ class StreamingLaunchViewController: BaseViewController {
         return button
     }()
     
-    /// 菜单按钮 — 发送向日葵菜单键
-    private lazy var menuButton: UIButton = {
+    /// Home按钮 — 发送向日葵 Android Home键
+    private lazy var homeButton: UIButton = {
         let button = UIButton(type: .system)
         let config = UIImage.SymbolConfiguration(pointSize: 22, weight: .medium)
-        button.setImage(UIImage(systemName: "line.3.horizontal", withConfiguration: config), for: .normal)
+        button.setImage(UIImage(systemName: "house.fill", withConfiguration: config), for: .normal)
         button.tintColor = .white
-        button.addTarget(self, action: #selector(menuTapped), for: .touchUpInside)
+        button.addTarget(self, action: #selector(homeTapped), for: .touchUpInside)
         return button
     }()
     
@@ -220,7 +220,7 @@ class StreamingLaunchViewController: BaseViewController {
         view.addSubviewWithAutoLayout(bottomControlBar)
         
         buttonStackView.addArrangedSubview(backButton)
-        buttonStackView.addArrangedSubview(menuButton)
+        buttonStackView.addArrangedSubview(homeButton)
         buttonStackView.addArrangedSubview(closeButton)
         bottomControlBar.addSubviewWithAutoLayout(buttonStackView)
         
@@ -752,10 +752,10 @@ class StreamingLaunchViewController: BaseViewController {
         ScreenMirrorService.shared.androidClickBack()
     }
     
-    /// 菜单 — 发送向日葵菜单键
-    @objc private func menuTapped() {
-        print("[User Action] StreamingLaunch - menuTapped (Sunlogin androidClickMenu)")
-        ScreenMirrorService.shared.androidClickMenu()
+    /// Home — 发送向日葵 Android Home键
+    @objc private func homeTapped() {
+        print("[User Action] StreamingLaunch - homeTapped (Sunlogin androidClickHome)")
+        ScreenMirrorService.shared.androidClickHome()
     }
     
     /// 结束远程桌面 — 已连接时确认后断开，连接中时直接退出

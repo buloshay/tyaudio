@@ -27,6 +27,22 @@ struct PlayState {
         return status == 1
     }
     
+    /// T040: 是否为本地音源（硬盘/U盘/TF卡）
+    var isLocalSource: Bool {
+        return filePath.hasPrefix("/mnt/") ||
+               filePath.hasPrefix("/storage/") ||
+               filePath.hasPrefix("/sdcard/")
+    }
+    
+    /// T037: 清理后的专辑名（过滤协议路径后缀）
+    var cleanAlbumName: String {
+        let separator = "~!@#$%"
+        if let range = album.range(of: separator) {
+            return String(album[..<range.lowerBound])
+        }
+        return album
+    }
+    
     /// 从 album 字段提取播放目录路径
     /// album 格式: "专辑名~!@#$%/storage/emulated/0/Music/..."
     var albumPath: String? {

@@ -191,10 +191,7 @@ class DeviceControlViewController: BaseViewController {
         customNavigationBar.addSubview(connectionStatusLabel)
         connectionStatusLabel.translatesAutoresizingMaskIntoConstraints = false
         
-        // Adjust height for DeviceControl (Original 140 + 10 = 150)
-        if let heightConstraint = customNavigationBar.constraints.first(where: { $0.firstAttribute == .height }) {
-            heightConstraint.constant = 150
-        }
+        // T028: 使用 BaseViewController 默认高度 110，不再覆写为 150
         
         NSLayoutConstraint.activate([
             // Align with back button in BaseViewController
@@ -408,6 +405,7 @@ class DeviceControlViewController: BaseViewController {
             
         case .apps:
             let vc = AppListViewController()
+            vc.ipAddress = device.ipAddress // T027: 传递 IP 用于图标加载
             navigationController?.pushViewController(vc, animated: true)
         }
     }

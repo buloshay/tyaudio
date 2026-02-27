@@ -378,19 +378,44 @@ class DeviceScannerViewController: BaseViewController {
     }
     
     @objc private func addManualDeviceTapped() {
-        guard let ip = ipTextField.text, !ip.isEmpty else {
+        guard let ip = ipTextField.text?.trimmingCharacters(in: .whitespacesAndNewlines), !ip.isEmpty else {
             showAlert(title: "提示", message: "请输入IP地址")
             return
         }
         
-        let device = Device(ipAddress: ip)
-        delegate?.deviceScannerViewController(self, didAddDevice: device)
-        dismiss(animated: true)
+        // T017: 前置校验 — IP 格式 + TCP 可达性
+        validateAndAddDevice(ip: ip, port: 8001, model: nil)
     }
     
     private func addDevice(_ device: Device) {
         delegate?.deviceScannerViewController(self, didAddDevice: device)
         dismiss(animated: true)
+    }
+    
+    /// T016/T017/T018: 统一校验后添加设备
+    private func validateAndAddDevice(ip: String, port: UInt16 = 8001, model: String?) {
+        // 第一步：IP 格式校验
+        guard DeviceReachabilityValidator.isValidIP(ip) else {
+            showAlert(title: "IP 格式错误", message: "请输入正确的 IP 地址，例如 192.168.1.100")
+            return
+        }
+        
+        // 第二步：TCP 可达性校验
+        showLoading(message: "正在检测设备连通性...")
+        DeviceReachabilityValidator.checkReachability(ip: ip, port: port) { [weak self] reachable in
+            guard let self = self else { return }
+            self.hideLoading()
+            
+            if reachable {
+                var device = Device(ipAddress: ip, port: port)
+                if let m = model {
+                    device = Device(ipAddress: ip, port: port, model: m)
+                }
+                self.addDevice(device)
+            } else {
+                self.showAlert(title: "连接不可用", message: "无法连接到 \(ip):\(port)，请确认设备已开机且在同一局域网内")
+            }
+        }
     }
     
     private func showAlert(title: String, message: String) {
@@ -531,13 +556,8 @@ class DeviceScannerViewController: BaseViewController {
             return
         }
         
-        // Create device and add
-        var device = Device(ipAddress: ip, port: UInt16(port))
-        if let m = model {
-            device = Device(ipAddress: ip, port: UInt16(port), model: m)
-        }
-        
-        addDevice(device)
+        // T018: 扫码添加也走统一校验链路
+        validateAndAddDevice(ip: ip, port: UInt16(port), model: model)
     }
 }
 

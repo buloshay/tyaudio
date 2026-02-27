@@ -76,8 +76,19 @@ class ScreenMirrorService: NSObject {
         config: SCCDesktopConfig? = nil,
         completion: @escaping (UIViewController?) -> Void
     ) {
-        precondition(!address.isEmpty, "Address cannot be empty")
-        precondition(!session.isEmpty, "Session cannot be empty")
+        // T010: 防御式校验，避免在异常 session 场景触发 precondition 崩溃
+        guard !address.isEmpty else {
+            print("[ScreenMirror] ⚠️ connect failed: address is empty")
+            state = .failed(error: "Address cannot be empty")
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
+        guard !session.isEmpty else {
+            print("[ScreenMirror] ⚠️ connect failed: session is empty")
+            state = .failed(error: "Session cannot be empty")
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
         
         // 新建连接前先清理旧桌面，避免底层通道残留影响
         desktopController?.closeDesktop()
